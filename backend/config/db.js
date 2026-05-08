@@ -29,5 +29,4 @@ export const query = (text, params) => pool.query(text, params);
 export const getClient = () => pool.connect();
 export { pool };
 
-// Default export for callers that want `import db from '../config/db.js'`
 export default { query, getClient, pool };
