@@ -131,3 +131,63 @@ input[type='number'] {
 .prose-lesson code { @apply bg-ink text-sun-300 px-2 py-1 rounded-md font-mono text-sm; }
 .prose-lesson blockquote { @apply border-l-4 border-sun-400 pl-4 italic text-ink/70 my-6; }
 .prose-lesson a { @apply text-bull-600 underline decoration-2 underline-offset-2 hover:text-bull-700; }
+
+/* ============================================
+   MOBILE RESPONSIVE FIXES
+   ============================================ */
+
+/* Prevent horizontal scroll on all devices */
+html, body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Make all images responsive by default */
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Mobile screens (under 768px) */
+@media (max-width: 768px) {
+  /* Slightly smaller base font for everything */
+  html {
+    font-size: 15px;
+  }
+
+  /* Lesson content — major resize for mobile readability */
+  .prose-lesson h1 { @apply text-2xl mt-5 mb-3; }
+  .prose-lesson h2 { @apply text-xl mt-6 mb-2; }
+  .prose-lesson h3 { @apply text-lg mt-4 mb-2; }
+  .prose-lesson p  { @apply text-base leading-relaxed my-3; }
+  .prose-lesson ul { @apply text-base; }
+  .prose-lesson ol { @apply text-base; }
+
+  /* Buttons — slightly smaller padding on mobile */
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost {
+    @apply px-5 py-2.5 text-sm;
+  }
+
+  /* Inputs — comfortable mobile sizing */
+  .input-field {
+    @apply px-4 py-3 text-base;
+  }
+
+  /* Cards — less rounded on mobile (more usable space) */
+  .card-soft {
+    @apply rounded-2xl;
+  }
+}
+
+/* Very small screens (under 400px) — extra tight */
+@media (max-width: 400px) {
+  html {
+    font-size: 14px;
+  }
+
+  .prose-lesson h1 { @apply text-xl; }
+  .prose-lesson h2 { @apply text-lg; }
+  .prose-lesson h3 { @apply text-base; }
+}
