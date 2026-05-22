@@ -81,20 +81,20 @@ export default function Pricing() {
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="text-center max-w-2xl mx-auto mb-12">
-          <p className="text-sm font-bold uppercase tracking-widest text-coral-500 mb-2">Premium plans</p>
-          <h1 className="font-display text-5xl sm:text-6xl font-black leading-tight mb-3">
+      <div className="max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-8 sm:py-12">
+        <div className="text-center max-w-2xl mx-auto mb-8 sm:mb-12">
+          <p className="text-xs sm:text-sm font-bold uppercase tracking-widest text-coral-500 mb-2">Premium plans</p>
+          <h1 className="font-display text-3xl sm:text-6xl font-black leading-tight mb-3">
             Start free.<br/>
             <span className="italic">Upgrade when you're ready.</span>
           </h1>
-          <p className="text-ink/65 text-lg">
+          <p className="text-ink/65 text-sm sm:text-lg px-2">
             Unlock the full analysis engine, peer comparison, and PDF reports.
           </p>
 
           {/* Country / currency switcher */}
           {geo && (
-            <div className="mt-5 inline-flex items-center gap-2 text-xs text-ink/60">
+            <div className="mt-4 sm:mt-5 inline-flex items-center gap-2 text-[10px] sm:text-xs text-ink/60 flex-wrap justify-center">
               <Globe size={12}/>
               {!showCountryPicker ? (
                 <>
@@ -102,22 +102,22 @@ export default function Pricing() {
                   <button onClick={() => setShowCountryPicker(true)} className="text-coral-500 hover:underline font-bold">change</button>
                 </>
               ) : (
-                <div className="flex gap-1.5">
-                  <button onClick={() => switchCountry('NG')} className="px-3 py-1 rounded-full bg-bull-100 text-bull-700 font-bold hover:bg-bull-200 transition">🇳🇬 Nigeria (₦)</button>
-                  <button onClick={() => switchCountry('US')} className="px-3 py-1 rounded-full bg-sun-100 text-sun-600 font-bold hover:bg-sun-200 transition">🌍 International ($)</button>
+                <div className="flex gap-1.5 flex-wrap justify-center">
+                  <button onClick={() => switchCountry('NG')} className="px-2 sm:px-3 py-1 rounded-full bg-bull-100 text-bull-700 font-bold hover:bg-bull-200 transition">🇳🇬 Nigeria (₦)</button>
+                  <button onClick={() => switchCountry('US')} className="px-2 sm:px-3 py-1 rounded-full bg-sun-100 text-sun-600 font-bold hover:bg-sun-200 transition">🌍 International ($)</button>
                 </div>
               )}
             </div>
           )}
         </div>
 
-        <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+        <div className="grid md:grid-cols-2 gap-4 sm:gap-6 max-w-4xl mx-auto">
           {/* FREE */}
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card-soft p-8">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="card-soft p-6 sm:p-8">
             <p className="text-xs font-bold uppercase tracking-widest text-ink/50">Free</p>
-            <p className="font-display text-4xl font-black mt-1">{usingFlutterwave ? '$0' : '₦0'}</p>
-            <p className="text-sm text-ink/55 mb-5">Everything you need to start learning.</p>
-            <ul className="space-y-2.5 text-sm">
+            <p className="font-display text-3xl sm:text-4xl font-black mt-1">{usingFlutterwave ? '$0' : '₦0'}</p>
+            <p className="text-xs sm:text-sm text-ink/55 mb-4 sm:mb-5">Everything you need to start learning.</p>
+            <ul className="space-y-2 sm:space-y-2.5 text-xs sm:text-sm">
               <Feature>All 6 courses & lessons with diagrams</Feature>
               <Feature>Quizzes & XP system</Feature>
               <Feature>Paper-trading simulator with $100k</Feature>
@@ -127,7 +127,7 @@ export default function Pricing() {
               <Feature>Smart Rankings page</Feature>
             </ul>
             {!isPremium && (
-              <button disabled className="mt-6 w-full py-3 rounded-full bg-ink/5 text-ink/40 font-semibold text-sm cursor-default">
+              <button disabled className="mt-5 sm:mt-6 w-full py-2.5 sm:py-3 rounded-full bg-ink/5 text-ink/40 font-semibold text-xs sm:text-sm cursor-default">
                 You're on the Free plan
               </button>
             )}
@@ -135,19 +135,19 @@ export default function Pricing() {
 
           {/* PREMIUM */}
           <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}
-            className="card-soft p-8 ring-4 ring-ink relative overflow-hidden">
-            <div className="absolute -top-1 -right-1 bg-gradient-to-r from-coral-400 to-sun-400 text-ink text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-bl-2xl">
+            className="card-soft p-6 sm:p-8 ring-4 ring-ink relative overflow-hidden">
+            <div className="absolute -top-1 -right-1 bg-gradient-to-r from-coral-400 to-sun-400 text-ink text-[9px] sm:text-[10px] font-black uppercase tracking-widest px-3 sm:px-4 py-1 sm:py-1.5 rounded-bl-2xl">
               ⭐ Most popular
             </div>
 
             <p className="text-xs font-bold uppercase tracking-widest text-coral-500">Premium</p>
             <div className="flex items-baseline gap-2 mt-1">
-              <p className="font-display text-4xl font-black">{displayPrice}</p>
-              <p className="text-sm text-ink/50 font-semibold">/ month</p>
+              <p className="font-display text-3xl sm:text-4xl font-black">{displayPrice}</p>
+              <p className="text-xs sm:text-sm text-ink/50 font-semibold">/ month</p>
             </div>
-            <p className="text-sm text-ink/55 mb-5">For people who want to research like an analyst.</p>
+            <p className="text-xs sm:text-sm text-ink/55 mb-4 sm:mb-5">For people who want to research like an analyst.</p>
 
-            <ul className="space-y-2.5 text-sm">
+            <ul className="space-y-2 sm:space-y-2.5 text-xs sm:text-sm">
               <Feature highlight>Everything in Free</Feature>
               <Feature highlight icon={Brain}>Full Stock Analysis Report — every metric</Feature>
               <Feature highlight icon={BarChart3}>Factor sub-scores (the inputs behind each score)</Feature>
@@ -159,16 +159,16 @@ export default function Pricing() {
             </ul>
 
             {isPremium ? (
-              <div className="mt-6 space-y-2">
-                <div className="w-full py-3 rounded-full bg-bull-100 text-bull-700 text-center font-bold text-sm">
+              <div className="mt-5 sm:mt-6 space-y-2">
+                <div className="w-full py-2.5 sm:py-3 rounded-full bg-bull-100 text-bull-700 text-center font-bold text-xs sm:text-sm">
                   ⭐ You're a Premium member
                 </div>
                 {planInfo?.plan_expires_at && (
-                  <p className="text-xs text-ink/50 text-center">
+                  <p className="text-[10px] sm:text-xs text-ink/50 text-center">
                     Renews on {new Date(planInfo.plan_expires_at).toLocaleDateString()}
                   </p>
                 )}
-                <button onClick={cancel} className="w-full py-2 text-xs text-ink/50 hover:text-bear-500 transition">
+                <button onClick={cancel} className="w-full py-2 text-[10px] sm:text-xs text-ink/50 hover:text-bear-500 transition">
                   Cancel Premium
                 </button>
               </div>
@@ -176,17 +176,17 @@ export default function Pricing() {
               <button
                 onClick={upgrade}
                 disabled={loading || !geo}
-                className="mt-6 w-full inline-flex items-center justify-center gap-2 py-4 rounded-full bg-ink text-cream font-bold text-base hover:bg-ink-soft transition shine disabled:opacity-60"
+                className="mt-5 sm:mt-6 w-full inline-flex items-center justify-center gap-2 py-3 sm:py-4 rounded-full bg-ink text-cream font-bold text-sm sm:text-base hover:bg-ink-soft transition shine disabled:opacity-60"
               >
                 {loading ? (
                   <><Loader2 size={16} className="animate-spin"/> Starting…</>
                 ) : (
-                  <><Sparkles size={18}/> Upgrade now — Pay {displayPrice}</>
+                  <><Sparkles size={16}/> Upgrade now — Pay {displayPrice}</>
                 )}
               </button>
             )}
 
-            <p className="text-xs text-ink/45 text-center mt-3">
+            <p className="text-[10px] sm:text-xs text-ink/45 text-center mt-3">
               {usingFlutterwave
                 ? 'Pay with international card · powered by Flutterwave'
                 : 'Pay with card · bank · USSD · Opay · mobile money'}
@@ -195,25 +195,25 @@ export default function Pricing() {
         </div>
 
         {/* Trust strip */}
-        <div className="max-w-3xl mx-auto mt-12 grid sm:grid-cols-3 gap-4 text-center">
-          <div className="p-5 bg-cream-warm rounded-2xl">
-            <Shield className="mx-auto mb-2 text-bull-600" size={22}/>
-            <p className="text-sm font-bold">Secure payments</p>
-            <p className="text-xs text-ink/55">{usingFlutterwave ? 'Powered by Flutterwave' : 'Powered by Paystack'}</p>
+        <div className="max-w-3xl mx-auto mt-8 sm:mt-12 grid grid-cols-3 gap-2 sm:gap-4 text-center">
+          <div className="p-3 sm:p-5 bg-cream-warm rounded-2xl">
+            <Shield className="mx-auto mb-1 sm:mb-2 text-bull-600" size={20}/>
+            <p className="text-xs sm:text-sm font-bold">Secure</p>
+            <p className="text-[10px] sm:text-xs text-ink/55">{usingFlutterwave ? 'Flutterwave' : 'Paystack'}</p>
           </div>
-          <div className="p-5 bg-cream-warm rounded-2xl">
-            <Zap className="mx-auto mb-2 text-sun-500" size={22}/>
-            <p className="text-sm font-bold">Instant access</p>
-            <p className="text-xs text-ink/55">Premium unlocks immediately</p>
+          <div className="p-3 sm:p-5 bg-cream-warm rounded-2xl">
+            <Zap className="mx-auto mb-1 sm:mb-2 text-sun-500" size={20}/>
+            <p className="text-xs sm:text-sm font-bold">Instant</p>
+            <p className="text-[10px] sm:text-xs text-ink/55">Unlocks immediately</p>
           </div>
-          <div className="p-5 bg-cream-warm rounded-2xl">
-            <Check className="mx-auto mb-2 text-coral-500" size={22}/>
-            <p className="text-sm font-bold">Cancel anytime</p>
-            <p className="text-xs text-ink/55">No long-term contracts</p>
+          <div className="p-3 sm:p-5 bg-cream-warm rounded-2xl">
+            <Check className="mx-auto mb-1 sm:mb-2 text-coral-500" size={20}/>
+            <p className="text-xs sm:text-sm font-bold">Cancel anytime</p>
+            <p className="text-[10px] sm:text-xs text-ink/55">No contracts</p>
           </div>
         </div>
 
-        <p className="text-xs text-ink/40 mt-10 text-center max-w-xl mx-auto leading-relaxed">
+        <p className="text-[10px] sm:text-xs text-ink/40 mt-8 sm:mt-10 text-center max-w-xl mx-auto leading-relaxed px-2">
           StockAcademy provides educational analysis and research tools. Investment decisions are yours to make.
         </p>
       </div>
@@ -223,11 +223,11 @@ export default function Pricing() {
 
 function Feature({ children, highlight, icon: Icon }) {
   return (
-    <li className="flex items-start gap-2.5">
-      <div className={`mt-0.5 w-5 h-5 rounded-full grid place-items-center shrink-0 ${
+    <li className="flex items-start gap-2 sm:gap-2.5">
+      <div className={`mt-0.5 w-4 h-4 sm:w-5 sm:h-5 rounded-full grid place-items-center shrink-0 ${
         highlight ? 'bg-ink text-sun-300' : 'bg-bull-100 text-bull-600'
       }`}>
-        {Icon ? <Icon size={11} /> : <Check size={11} strokeWidth={3} />}
+        {Icon ? <Icon size={10} /> : <Check size={10} strokeWidth={3} />}
       </div>
       <span className={highlight ? 'font-medium' : 'text-ink/75'}>{children}</span>
     </li>
