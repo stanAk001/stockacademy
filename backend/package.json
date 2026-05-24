@@ -19,6 +19,7 @@
     "google-auth-library": "^9.6.3",
     "jsonwebtoken": "^9.0.2",
     "node-cron": "^4.2.1",
+    "pdfkit": "^0.18.0",
     "pg": "^8.11.3",
     "validator": "^13.11.0",
     "yahoo-finance2": "^3.14.0"

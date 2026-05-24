@@ -15,6 +15,7 @@ import featureRoutes from './routes/features.js';
 import bookingRoutes from './routes/bookings.js';
 import stockRoutes from './routes/stocks.js';
 import adminRoutes from './routes/admin.js';
+import certificateRoutes from './routes/certificateRoutes.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -31,6 +32,7 @@ app.get('/api/health', (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/certificates', certificateRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/trading', tradingRoutes);
 app.use('/api/forum', forumRoutes);

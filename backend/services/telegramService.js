@@ -98,9 +98,21 @@ export async function notifyNewBooking(booking, sessionTypeName) {
   await sendToAdmin(text);
 }
 
+export async function notifyNewCertificate(cert, wasFree) {
+  const type = wasFree ? '🌟 Premium (free)' : `💰 Paid ₦${cert.amount_paid}`;
+  const text =
+    `🎓 <b>New Certificate Issued!</b>\n\n` +
+    `👤 ${escape(cert.full_name)}\n` +
+    `🔖 Cert #: ${escape(cert.certificate_number)}\n` +
+    `${type}\n` +
+    `🕐 ${formatTime()}`;
+
+  await sendToAdmin(text);
+}
+
 export async function sendTestNotification() {
   await sendToAdmin(
-    `✅ <b>StockAcademy notifications are working!</b>\n\nYou'll receive alerts for:\n• New signups\n• Premium subscriptions\n• Mentorship bookings\n\n🕐 ${formatTime()}`
+    `✅ <b>StockAcademy notifications are working!</b>\n\nYou'll receive alerts for:\n• New signups\n• Premium subscriptions\n• Mentorship bookings\n• Certificates issued\n\n🕐 ${formatTime()}`
   );
 }
 
@@ -108,5 +120,6 @@ export default {
   notifyNewSignup,
   notifyNewPremium,
   notifyNewBooking,
+  notifyNewCertificate,
   sendTestNotification,
 };

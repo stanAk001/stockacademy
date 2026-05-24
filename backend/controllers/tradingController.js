@@ -1,5 +1,8 @@
 import axios from 'axios';
+import YahooFinance from 'yahoo-finance2';
 import db from '../config/db.js';
+
+const yahooFinanceClient = new YahooFinance();
 
 const mockPrices = {
   AAPL: { name: 'Apple Inc.', price: 178.23 },
@@ -20,6 +23,26 @@ const jitter = (base) => {
   const pct = (Math.random() - 0.5) * 0.04;
   return +(base * (1 + pct)).toFixed(2);
 };
+
+function generateSyntheticCandles(basePrice, days) {
+  const candles = [];
+  let price = basePrice * 0.92;
+  for (let i = days; i >= 0; i--) {
+    const open = price;
+    const close = +(open * (1 + (Math.random() - 0.48) * 0.03)).toFixed(2);
+    const high = +(Math.max(open, close) * (1 + Math.random() * 0.01)).toFixed(2);
+    const low = +(Math.min(open, close) * (1 - Math.random() * 0.01)).toFixed(2);
+    const date = new Date();
+    date.setDate(date.getDate() - i);
+    candles.push({
+      date: date.toISOString().split('T')[0],
+      open, high, low, close,
+      volume: Math.floor(Math.random() * 1000000 + 500000),
+    });
+    price = close;
+  }
+  return candles;
+}
 
 export const getStockQuote = async (req, res) => {
   try {
@@ -97,29 +120,58 @@ export const getMarketOverview = async (req, res) => {
 };
 
 export const getCandles = async (req, res) => {
-  const symbol = req.params.symbol.toUpperCase();
-  const base = mockPrices[symbol]?.price || 100;
-  const days = 60;
-  const candles = [];
-  let price = base * 0.92;
-  for (let i = days; i >= 0; i--) {
-    const open = price;
-    const close = +(open * (1 + (Math.random() - 0.48) * 0.03)).toFixed(2);
-    const high = +(Math.max(open, close) * (1 + Math.random() * 0.01)).toFixed(2);
-    const low = +(Math.min(open, close) * (1 - Math.random() * 0.01)).toFixed(2);
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    candles.push({
-      date: date.toISOString().split('T')[0],
-      open,
-      high,
-      low,
-      close,
-      volume: Math.floor(Math.random() * 1000000 + 500000),
-    });
-    price = close;
+  try {
+    const symbol = req.params.symbol.toUpperCase();
+    const range = req.query.range || '6M';
+
+    const rangeToDays = {
+      '1M': 30,
+      '3M': 90,
+      '6M': 180,
+      '1Y': 365,
+      '5Y': 1825,
+    };
+    const days = rangeToDays[range] || 180;
+
+    // Try Yahoo Finance for US-listed stocks
+    const isLikelyUS = !symbol.includes('.NG') && !symbol.includes('.LG');
+
+    if (isLikelyUS) {
+      try {
+        const period2 = new Date();
+        const period1 = new Date();
+        period1.setDate(period1.getDate() - days - 10);
+
+        const history = await yahooFinanceClient.historical(symbol, {
+          period1,
+          period2,
+          interval: '1d',
+        });
+
+        if (history && history.length > 0) {
+          const candles = history.map((h) => ({
+            date: h.date.toISOString().split('T')[0],
+            open: +h.open.toFixed(2),
+            high: +h.high.toFixed(2),
+            low: +h.low.toFixed(2),
+            close: +h.close.toFixed(2),
+            volume: h.volume || 0,
+          }));
+          return res.json({ success: true, symbol, candles, source: 'yahoo' });
+        }
+      } catch (err) {
+        console.warn(`Yahoo candles failed for ${symbol}:`, err.message);
+      }
+    }
+
+    // Fallback: synthetic candles
+    const base = mockPrices[symbol]?.price || 100;
+    const candles = generateSyntheticCandles(base, days);
+    res.json({ success: true, symbol, candles, source: 'synthetic' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Failed to fetch candles' });
   }
-  res.json({ success: true, symbol, candles });
 };
 
 export const buy = async (req, res) => {
