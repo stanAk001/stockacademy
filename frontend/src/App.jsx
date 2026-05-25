@@ -31,6 +31,9 @@ import AdminUsers from './pages/AdminUsers';
 import AdminUserDetail from './pages/AdminUserDetail';
 import AdminForum from './pages/AdminForum';
 import AdminRevenue from './pages/AdminRevenue';
+import Certificate from './pages/Certificate';
+import CertificateVerify from './pages/CertificateVerify';
+import VerifyCertificate from './pages/VerifyCertificate';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -54,7 +57,9 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/pricing" element={<Pricing />} />
-
+          <Route path="/certificate" element={<Certificate />} />
+          <Route path="/certificate/verify" element={<CertificateVerify />} />
+          <Route path="/verify/:token" element={<VerifyCertificate />} />
           <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
           <Route path="/courses" element={<ProtectedRoute><Courses /></ProtectedRoute>} />
           <Route path="/courses/:slug" element={<ProtectedRoute><CourseDetail /></ProtectedRoute>} />

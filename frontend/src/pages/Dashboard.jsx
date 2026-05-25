@@ -112,6 +112,7 @@ export default function Dashboard() {
 
         {/* Featured: AI Analysis */}
         <SmartAnalysisFeature />
+        <CertificateBanner />
 
         {/* Recently viewed stocks */}
         <RecentlyViewed />
@@ -227,6 +228,45 @@ export default function Dashboard() {
       </div>
     </Layout>
   );
+
+  function CertificateBanner() {
+  const [data, setData] = useState(null);
+
+  useEffect(() => {
+    api.get('/certificates/eligibility')
+      .then(({ data }) => setData(data))
+      .catch(() => {});
+  }, []);
+
+  if (!data) return null;
+  if (data.already_owns) return null;
+  if (!data.eligible) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="mb-6 sm:mb-10 bg-gradient-to-r from-sun-300 via-coral-300 to-coral-400 rounded-3xl p-5 sm:p-7 relative overflow-hidden"
+    >
+      <div className="absolute -top-6 -right-6 w-32 h-32 bg-ink/10 rounded-full" />
+      <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div className="flex items-start gap-3 sm:gap-4">
+          <div className="w-12 h-12 sm:w-16 sm:h-16 bg-ink rounded-2xl grid place-items-center shrink-0">
+            <Sparkles className="text-sun-300" size={28} />
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest">Congratulations!</p>
+            <h3 className="font-display text-xl sm:text-2xl font-black mt-1">You've completed the entire program 🎓</h3>
+            <p className="text-ink/70 text-xs sm:text-sm mt-1">Claim your StockAcademy Graduate certificate.</p>
+          </div>
+        </div>
+        <Link to="/certificate" className="btn-primary bg-ink shrink-0">
+          Get certificate <ArrowRight size={16} />
+        </Link>
+      </div>
+    </motion.div>
+  );
+}
 }
 
 function StatCard({ icon: Icon, label, value, accent, note }) {

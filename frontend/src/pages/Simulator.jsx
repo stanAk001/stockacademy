@@ -1,9 +1,6 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from 'recharts';
-import {
   TrendingUp, TrendingDown, Search, Wallet, PieChart as PieIcon,
   ShoppingCart, X, ArrowUp, ArrowDown, History, RefreshCcw
 } from 'lucide-react';
@@ -13,6 +10,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import BuyThisStockButton from '../components/BuyThisStockButton';
 import StockAnalysisPanel from '../components/StockAnalysisPanel';
+import CandlestickChart from '../components/CandlestickChart';
 
 const POPULAR = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX', 'DIS', 'KO', 'JPM', 'V'];
 
@@ -20,25 +18,22 @@ export default function Simulator() {
   const { user, refreshUser } = useAuth();
   const [selected, setSelected] = useState('AAPL');
   const [quote, setQuote] = useState(null);
-  const [candles, setCandles] = useState([]);
   const [market, setMarket] = useState([]);
   const [portfolio, setPortfolio] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [search, setSearch] = useState('');
-  const [tradeModal, setTradeModal] = useState(null); // {side:'BUY'|'SELL', symbol}
-  const [tab, setTab] = useState('chart'); // chart | portfolio | history
+  const [tradeModal, setTradeModal] = useState(null);
+  const [tab, setTab] = useState('chart');
 
   const loadAll = async () => {
     try {
-      const [q, c, m, p, t] = await Promise.all([
+      const [q, m, p, t] = await Promise.all([
         api.get(`/trading/quote/${selected}`),
-        api.get(`/trading/candles/${selected}`),
         api.get('/trading/market'),
         api.get('/trading/portfolio'),
         api.get('/trading/transactions'),
       ]);
       if (q.data.success) setQuote(q.data);
-      if (c.data.success) setCandles(c.data.candles);
       if (m.data.success) setMarket(m.data.stocks);
       if (p.data.success) setPortfolio(p.data);
       if (t.data.success) setTransactions(t.data.transactions);
@@ -87,7 +82,6 @@ export default function Simulator() {
           </button>
         </div>
 
-        {/* Balance strip */}
         <div className="grid sm:grid-cols-3 gap-4 mb-6">
           <BalanceCard
             label="Cash"
@@ -110,7 +104,6 @@ export default function Simulator() {
           />
         </div>
 
-        {/* Tabs */}
         <div className="flex gap-2 mb-5 overflow-x-auto">
           {[
             { id: 'chart', label: 'Chart & Trade' },
@@ -129,19 +122,17 @@ export default function Simulator() {
           ))}
         </div>
 
-        {/* --- CHART TAB --- */}
         {tab === 'chart' && (
           <div className="grid lg:grid-cols-3 gap-6">
-            {/* Watchlist */}
             <div className="card-soft p-5 lg:order-2 lg:col-span-1">
               <p className="text-xs font-bold uppercase tracking-widest text-bull-600 mb-3">Market</p>
-              <div className="relative mb-3">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink/40" />
+            <div className="relative mb-3">
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/40 pointer-events-none z-10" />
                 <input
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="Search stocks…"
-                  className="input-field pl-10 py-2"
+                  className="input-field py-2 !pl-12"
                 />
               </div>
               <div className="space-y-1 max-h-[30rem] overflow-auto">
@@ -171,7 +162,6 @@ export default function Simulator() {
               </div>
             </div>
 
-            {/* Chart + trade controls */}
             <div className="lg:col-span-2 space-y-5">
               <div className="card-soft p-6">
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
@@ -191,33 +181,7 @@ export default function Simulator() {
                   </div>
                 </div>
 
-                {/* Chart */}
-                <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={candles}>
-                      <defs>
-                        <linearGradient id="chart-grad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={isUp ? '#10B981' : '#EF4444'} stopOpacity={0.35} />
-                          <stop offset="100%" stopColor={isUp ? '#10B981' : '#EF4444'} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#0F141910" />
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#0F141980' }} tickFormatter={(d) => d.slice(5)} />
-                      <YAxis tick={{ fontSize: 10, fill: '#0F141980' }} domain={['auto', 'auto']} />
-                      <Tooltip
-                        contentStyle={{ background: '#0F1419', border: 'none', borderRadius: 12, color: '#FDF8F0' }}
-                        labelStyle={{ color: '#FBBF24' }}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="close"
-                        stroke={isUp ? '#10B981' : '#EF4444'}
-                        strokeWidth={2.5}
-                        fill="url(#chart-grad)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
+                <CandlestickChart symbol={selected} height={400} />
 
                 <div className="grid grid-cols-4 gap-3 mt-5 text-sm">
                   <Metric label="Open" value={`$${quote?.open?.toFixed(2) ?? '—'}`} />
@@ -243,10 +207,8 @@ export default function Simulator() {
                 <BuyThisStockButton symbol={selected} className="flex-1" />
               </div>
 
-              {/* AI Signal + Insights */}
               <StockAnalysisPanel symbol={selected} />
 
-              {/* Popular chips */}
               <div className="card-soft p-4">
                 <p className="text-xs font-bold uppercase tracking-widest text-ink/50 mb-2">Popular tickers</p>
                 <div className="flex flex-wrap gap-2">
@@ -267,7 +229,6 @@ export default function Simulator() {
           </div>
         )}
 
-        {/* --- PORTFOLIO TAB --- */}
         {tab === 'portfolio' && (
           <div className="card-soft p-6">
             {portfolio?.portfolio?.length ? (
@@ -328,7 +289,6 @@ export default function Simulator() {
           </div>
         )}
 
-        {/* --- HISTORY TAB --- */}
         {tab === 'history' && (
           <div className="card-soft p-6">
             {transactions.length ? (

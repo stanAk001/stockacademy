@@ -191,3 +191,8 @@ img {
   .prose-lesson h2 { @apply text-lg; }
   .prose-lesson h3 { @apply text-base; }
 }
+
+html, body, #root {
+  overflow-x: hidden;
+  max-width: 100%;
+}
