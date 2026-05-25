@@ -132,19 +132,19 @@ export default function Dashboard() {
             </div>
 
             <div className="space-y-3">
-              {courses.slice(0, 3).map((c) => (
+                {courses.slice(0, 3).map((c) => (
                 <Link
                   key={c.id}
                   to={`/courses/${c.slug}`}
-                  className="flex items-center gap-4 p-4 rounded-2xl hover:bg-cream-warm transition group"
+                  className="flex items-start gap-3 sm:gap-4 p-4 rounded-2xl hover:bg-cream-warm transition group"
                 >
-                  <div className={`w-14 h-14 rounded-2xl bg-gradient-to-br ${c.cover_color} grid place-items-center text-2xl shrink-0`}>
+                  <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br ${c.cover_color} grid place-items-center text-xl sm:text-2xl shrink-0`}>
                     {c.icon}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-display font-bold text-lg truncate">{c.title}</p>
-                    <p className="text-sm text-ink/60 truncate">{c.description}</p>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-ink/50">
+                    <p className="font-display font-bold text-base sm:text-lg break-words">{c.title}</p>
+                    <p className="text-sm text-ink/60 break-words line-clamp-2">{c.description}</p>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mt-1 text-xs text-ink/50">
                       <span>{c.lesson_count} lessons</span>
                       <span>·</span>
                       <span>{c.difficulty}</span>
@@ -152,7 +152,7 @@ export default function Dashboard() {
                       <span>{c.estimated_minutes} min</span>
                     </div>
                   </div>
-                  <ArrowRight className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition shrink-0" size={20} />
+                  <ArrowRight className="opacity-30 group-hover:opacity-100 group-hover:translate-x-1 transition shrink-0 mt-1" size={20} />
                 </Link>
               ))}
             </div>
