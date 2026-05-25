@@ -1241,6 +1241,170 @@ const EmotionCycle = () => (
 );
 
 /* ==========================================================
+ * 28. INVESTING STYLES — the spectrum from investing to trading
+ * ========================================================== */
+const InvestingStyles = () => (
+  <figure className="my-8">
+    <svg viewBox="0 0 700 260" className="w-full max-w-3xl mx-auto">
+      <rect x="0" y="0" width="700" height="260" fill={COLORS.cream} rx="12" />
+      <text x="350" y="34" textAnchor="middle" fontFamily="serif" fontSize="16" fontWeight="800" fill={COLORS.ink}>
+        The spectrum: from investing to trading
+      </text>
+
+      {/* Spectrum bar */}
+      <defs>
+        <linearGradient id="styleGrad" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor={COLORS.bull} />
+          <stop offset="100%" stopColor={COLORS.coral} />
+        </linearGradient>
+      </defs>
+      <rect x="60" y="110" width="580" height="14" rx="7" fill="url(#styleGrad)" />
+
+      {/* Markers */}
+      {[
+        { x: 110, top: 'Long-term investing', bot: 'years — calmest', c: COLORS.bull },
+        { x: 270, top: 'Position trading', bot: 'months', c: COLORS.sun },
+        { x: 430, top: 'Swing trading', bot: 'days to weeks', c: COLORS.sun },
+        { x: 600, top: 'Day trading', bot: 'minutes — hardest', c: COLORS.coral },
+      ].map((m, i) => (
+        <g key={i}>
+          <circle cx={m.x} cy="117" r="9" fill="#FFFFFF" stroke={m.c} strokeWidth="3" />
+          <text x={m.x} y="80" textAnchor="middle" fontSize="10.5" fontWeight="700" fill={COLORS.ink}>{m.top}</text>
+          <text x={m.x} y="150" textAnchor="middle" fontSize="9" fill={COLORS.ink} opacity="0.65">{m.bot}</text>
+        </g>
+      ))}
+
+      <text x="110" y="200" textAnchor="middle" fontSize="10" fill={COLORS.bull} fontWeight="700">← lower stress, less time</text>
+      <text x="600" y="200" textAnchor="middle" fontSize="10" fill={COLORS.coral} fontWeight="700">more stress, more time →</text>
+      <text x="350" y="232" textAnchor="middle" fontSize="11" fontStyle="italic" fill={COLORS.ink} opacity="0.55">
+        The shorter the timeframe, the more skill, time and emotional control it demands.
+      </text>
+    </svg>
+    <figcaption className="text-xs text-ink/55 text-center italic mt-2">
+      Strategies sit on a spectrum by holding time — from multi-year investing to minute-by-minute day trading.
+    </figcaption>
+  </figure>
+);
+
+/* ==========================================================
+ * 29. DOLLAR-COST AVERAGING — investing a fixed amount regularly
+ * ========================================================== */
+const DollarCostAveraging = () => (
+  <figure className="my-8">
+    <svg viewBox="0 0 680 300" className="w-full max-w-2xl mx-auto">
+      <rect x="0" y="0" width="680" height="300" fill={COLORS.cream} rx="12" />
+      <text x="340" y="32" textAnchor="middle" fontFamily="serif" fontSize="16" fontWeight="800" fill={COLORS.ink}>
+        Dollar-cost averaging — same amount, every month
+      </text>
+
+      {/* wavy price line */}
+      <polyline
+        points="70,150 140,90 210,180 280,110 350,200 420,120 490,170 560,100 610,140"
+        fill="none" stroke={COLORS.ink} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.5"
+      />
+      <text x="70" y="70" fontSize="9" fill={COLORS.ink} opacity="0.5" fontWeight="600">Price goes up and down…</text>
+
+      {/* fixed investment bars */}
+      {[70, 140, 210, 280, 350, 420, 490, 560, 610].map((x, i) => (
+        <g key={i}>
+          <rect x={x - 12} y="220" width="24" height="44" rx="3" fill={COLORS.bull} fillOpacity="0.85" />
+          <text x={x} y="280" textAnchor="middle" fontSize="8" fill={COLORS.ink} opacity="0.6">₦5k</text>
+        </g>
+      ))}
+      <text x="340" y="210" textAnchor="middle" fontSize="10" fill={COLORS.bull} fontWeight="700">…but you invest the SAME fixed amount each time</text>
+
+      <text x="340" y="296" textAnchor="middle" fontSize="10.5" fontStyle="italic" fill={COLORS.ink} opacity="0.55">
+        Buying regularly means you grab more shares when cheap, fewer when pricey — automatically.
+      </text>
+    </svg>
+    <figcaption className="text-xs text-ink/55 text-center italic mt-2">
+      Dollar-cost averaging: invest a fixed sum on a schedule, regardless of price, and remove timing guesswork.
+    </figcaption>
+  </figure>
+);
+
+/* ==========================================================
+ * 30. VALUE vs GROWTH — two ways to pick stocks
+ * ========================================================== */
+const ValueVsGrowth = () => (
+  <figure className="my-8">
+    <svg viewBox="0 0 660 280" className="w-full max-w-2xl mx-auto">
+      <rect x="0" y="0" width="660" height="280" fill={COLORS.cream} rx="12" />
+      <text x="330" y="34" textAnchor="middle" fontFamily="serif" fontSize="16" fontWeight="800" fill={COLORS.ink}>
+        Two classic styles of picking stocks
+      </text>
+
+      {/* Value */}
+      <g transform="translate(50, 60)">
+        <rect x="0" y="0" width="270" height="180" rx="14" fill={COLORS.bullLight} stroke={COLORS.bull} strokeWidth="2" />
+        <text x="135" y="38" textAnchor="middle" fontSize="30">🏷️</text>
+        <text x="135" y="68" textAnchor="middle" fontSize="14" fontWeight="800" fill={COLORS.ink}>VALUE INVESTING</text>
+        <text x="135" y="94" textAnchor="middle" fontSize="10" fill={COLORS.ink} opacity="0.75">Buy solid companies that look</text>
+        <text x="135" y="110" textAnchor="middle" fontSize="10" fill={COLORS.ink} opacity="0.75">underpriced — "on sale".</text>
+        <text x="135" y="140" textAnchor="middle" fontSize="9" fill={COLORS.bull} fontWeight="700">Looks for: low price vs worth</text>
+        <text x="135" y="158" textAnchor="middle" fontSize="9" fill={COLORS.ink} opacity="0.6">Patience while the market catches up</text>
+      </g>
+
+      {/* Growth */}
+      <g transform="translate(340, 60)">
+        <rect x="0" y="0" width="270" height="180" rx="14" fill={COLORS.sunLight} stroke={COLORS.sun} strokeWidth="2" />
+        <text x="135" y="38" textAnchor="middle" fontSize="30">🚀</text>
+        <text x="135" y="68" textAnchor="middle" fontSize="14" fontWeight="800" fill={COLORS.ink}>GROWTH INVESTING</text>
+        <text x="135" y="94" textAnchor="middle" fontSize="10" fill={COLORS.ink} opacity="0.75">Buy fast-growing companies, even</text>
+        <text x="135" y="110" textAnchor="middle" fontSize="10" fill={COLORS.ink} opacity="0.75">if they look expensive today.</text>
+        <text x="135" y="140" textAnchor="middle" fontSize="9" fill={COLORS.sun} fontWeight="700">Looks for: fast rising revenue/profit</text>
+        <text x="135" y="158" textAnchor="middle" fontSize="9" fill={COLORS.ink} opacity="0.6">Betting the growth continues</text>
+      </g>
+
+      <text x="330" y="268" textAnchor="middle" fontSize="10.5" fontStyle="italic" fill={COLORS.ink} opacity="0.55">
+        Neither is "better" — they simply suit different beliefs and temperaments.
+      </text>
+    </svg>
+    <figcaption className="text-xs text-ink/55 text-center italic mt-2">
+      Value hunts for bargains; growth chases fast expansion. Many investors blend both.
+    </figcaption>
+  </figure>
+);
+
+/* ==========================================================
+ * 31. TRADING PLAN — the checklist before any trade
+ * ========================================================== */
+const TradingPlan = () => (
+  <figure className="my-8">
+    <svg viewBox="0 0 600 320" className="w-full max-w-lg mx-auto">
+      <rect x="0" y="0" width="600" height="320" fill={COLORS.cream} rx="12" />
+      <text x="300" y="34" textAnchor="middle" fontFamily="serif" fontSize="16" fontWeight="800" fill={COLORS.ink}>
+        Every trade needs a written plan
+      </text>
+
+      {/* Clipboard */}
+      <rect x="160" y="56" width="280" height="232" rx="14" fill="#FFFFFF" stroke={COLORS.ink} strokeWidth="2" />
+      <rect x="250" y="46" width="100" height="22" rx="8" fill={COLORS.ink} />
+
+      {[
+        { q: 'Why am I buying this?', y: 100 },
+        { q: 'How much will I invest?', y: 142 },
+        { q: 'Where will I take profit?', y: 184 },
+        { q: 'Where is my stop-loss?', y: 226 },
+      ].map((item, i) => (
+        <g key={i}>
+          <rect x={185} y={item.y - 15} width="22" height="22" rx="5" fill={COLORS.bullLight} stroke={COLORS.bull} strokeWidth="2" />
+          <path d={`M189 ${item.y - 5} l4 5 l8 -10`} fill="none" stroke={COLORS.bull} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <text x={220} y={item.y + 1} fontSize="12" fontWeight="600" fill={COLORS.ink}>{item.q}</text>
+        </g>
+      ))}
+
+      <text x="300" y="306" textAnchor="middle" fontSize="10.5" fontStyle="italic" fill={COLORS.ink} opacity="0.6">
+        If you cannot answer all four, you are not ready to trade.
+      </text>
+    </svg>
+    <figcaption className="text-xs text-ink/55 text-center italic mt-2">
+      A trading plan answers four questions before you risk a single naira — entry reason, size, profit target, and stop-loss.
+    </figcaption>
+  </figure>
+);
+
+/* ==========================================================
  * Registry — add new diagrams here
  * ========================================================== */
 export const VISUALS = {
@@ -1271,6 +1435,10 @@ export const VISUALS = {
   'diversification': Diversification,
   'risk-reward': RiskReward,
   'emotion-cycle': EmotionCycle,
+  'investing-styles': InvestingStyles,
+  'dollar-cost-averaging': DollarCostAveraging,
+  'value-vs-growth': ValueVsGrowth,
+  'trading-plan': TradingPlan,
 };
 /* ==========================================================
  * Visual renderer — looks up by ID and renders or shows a fallback
