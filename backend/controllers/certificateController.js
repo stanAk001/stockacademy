@@ -12,9 +12,9 @@ async function checkCompletion(userId) {
   const { rows: lessonStats } = await db.query(`
     SELECT 
       COUNT(DISTINCT l.id) AS total_lessons,
-      COUNT(DISTINCT CASE WHEN lp.completed = true THEN l.id END) AS completed_lessons
+      COUNT(DISTINCT CASE WHEN up.completed = true THEN l.id END) AS completed_lessons
     FROM lessons l
-    LEFT JOIN lesson_progress lp ON lp.lesson_id = l.id AND lp.user_id = $1
+    LEFT JOIN user_progress up ON up.lesson_id = l.id AND up.user_id = $1
   `, [userId]);
 
   const { rows: quizStats } = await db.query(`
