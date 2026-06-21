@@ -1,0 +1,21 @@
+# ─── Database dumps / backups — keep secrets out ─
+*.sql.bak
+*.dump
+*.backup
+*_backup.sql
+*_export.sql
+
+# ─── Local DB data / credentials ────────────────
+.env
+.env.local
+*.sqlite
+*.sqlite3
+*.db
+
+# ─── OS / editor ────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# NOTE: migration_*.sql and schema.sql ARE tracked on purpose.
+# ─── Your own entries below ─────────────────────
