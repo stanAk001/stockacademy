@@ -3,12 +3,13 @@ node_modules/
 **/node_modules/
 .pnp
 .pnp.js
-
+CLAUDE.md
 # Build outputs
 dist/
 build/
 .next/
 .cache/
+
 
 # Environment files — NEVER commit your secret keys!
 .env
@@ -16,6 +17,7 @@ build/
 .env.production
 .env.*.local
 **/.env
+.env.example
 
 # Logs
 *.log
