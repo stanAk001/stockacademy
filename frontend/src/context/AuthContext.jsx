@@ -14,6 +14,8 @@ export const AuthProvider = ({ children }) => {
       setUser(data.user);
     } catch (err) {
       setUser(null);
+      // Token invalid/expired → drop it so we don't keep sending a dead one.
+      if (err?.response?.status === 401) localStorage.removeItem('auth_token');
     } finally {
       setLoading(false);
     }
@@ -25,24 +27,34 @@ export const AuthProvider = ({ children }) => {
 
   const login = async ({ identifier, password }) => {
     const { data } = await api.post('/auth/login', { identifier, password });
-    if (data.success) setUser(data.user);
+    if (data.success) {
+      if (data.token) localStorage.setItem('auth_token', data.token);
+      setUser(data.user);
+    }
     return data;
   };
 
   const signup = async (payload) => {
     const { data } = await api.post('/auth/signup', payload);
-    if (data.success) setUser(data.user);
+    if (data.success) {
+      if (data.token) localStorage.setItem('auth_token', data.token);
+      setUser(data.user);
+    }
     return data;
   };
 
   const googleLogin = async (credential) => {
     const { data } = await api.post('/auth/google', { credential });
-    if (data.success) setUser(data.user);
+    if (data.success) {
+      if (data.token) localStorage.setItem('auth_token', data.token);
+      setUser(data.user);
+    }
     return data;
   };
 
   const logout = () => {
     setUser(null);
+    localStorage.removeItem('auth_token');
     api.post('/auth/logout').catch(() => {});
   };
 
