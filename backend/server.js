@@ -45,8 +45,19 @@ app.use((req, res, next) => {
   next();
 });
 
+// Allow the deployed frontend(s) to call the API with credentials (cookies).
+// CLIENT_URL may be a comma-separated list (prod URL + Vercel preview URLs);
+// trailing slashes are stripped so a stray "/" in the env var can't block CORS.
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
+  .split(',')
+  .map((o) => o.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  origin(origin, cb) {
+    // No Origin header = same-origin / non-browser client (curl, health checks) → allow.
+    if (!origin) return cb(null, true);
+    cb(null, allowedOrigins.includes(origin.replace(/\/+$/, '')));
+  },
   credentials: true,
 }));
 app.use(express.json({ limit: '6mb' })); // headroom for compressed forum image data URLs
