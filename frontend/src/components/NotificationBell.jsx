@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, Heart, MessageCircle, CornerDownRight, Target } from 'lucide-react';
@@ -20,6 +20,7 @@ export default function NotificationBell() {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [unread, setUnread] = useState(0);
+  const boxRef = useRef(null);
 
   const load = async () => {
     try {
@@ -36,6 +37,22 @@ export default function NotificationBell() {
     return () => clearInterval(id);
   }, [user]);
 
+  // Close the dropdown when clicking/tapping anywhere outside the bell + panel.
+  // (A document listener works regardless of the navbar's backdrop-blur, which
+  // would otherwise trap a fixed-position overlay inside the header.)
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (boxRef.current && !boxRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+    };
+  }, [open]);
+
   const toggle = async () => {
     const next = !open;
     setOpen(next);
@@ -49,7 +66,7 @@ export default function NotificationBell() {
   if (!user) return null;
 
   return (
-    <div className="relative">
+    <div className="relative" ref={boxRef}>
       <button
         onClick={toggle}
         className="relative w-9 h-9 grid place-items-center rounded-full bg-ink/5 hover:bg-ink/10 transition"
@@ -66,7 +83,6 @@ export default function NotificationBell() {
       <AnimatePresence>
         {open && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
             <motion.div
               initial={{ opacity: 0, y: 8, scale: 0.98 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}

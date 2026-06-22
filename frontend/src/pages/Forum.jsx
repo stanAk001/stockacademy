@@ -11,6 +11,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import PremiumBadge from '../components/PremiumBadge';
 import { compressImage } from '../lib/compressImage';
+import { timeAgo } from '../lib/timeAgo';
 
 const CATEGORIES = [
   { id: 'all', label: 'All', icon: LayoutGrid },
@@ -136,7 +137,7 @@ export default function Forum() {
                           by <span className="font-semibold text-ink">@{p.username}</span>
                         </span>
                         <PremiumBadge plan={p.plan} />
-                        <span className="text-xs text-ink/40">· {new Date(p.created_at).toLocaleDateString()}</span>
+                        <span className="text-xs text-ink/40">· {timeAgo(p.created_at)}</span>
                       </div>
                       {p.title ? (
                         <>

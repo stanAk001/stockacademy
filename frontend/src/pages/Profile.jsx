@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { User, Mail, Save, Zap, Trophy, Wallet, Send, Check, Loader2, Languages, Crown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Layout from '../components/Layout';
@@ -168,10 +169,39 @@ export default function Profile() {
           </p>
         </motion.div>
 
-        {/* Telegram alerts */}
-        <div className="mt-5"><TelegramConnect /></div>
+        {/* Telegram alerts — Premium only */}
+        <div className="mt-5">
+          {isPremium ? <TelegramConnect /> : <TelegramUpsell />}
+        </div>
       </div>
     </Layout>
+  );
+}
+
+// Non-premium users see why Telegram alerts are worth upgrading for, with a
+// direct path to the upgrade page (the connect feature itself is Premium-only).
+function TelegramUpsell() {
+  return (
+    <div className="card-soft p-7 mt-6">
+      <div className="flex items-start gap-2.5">
+        <div className="w-10 h-10 rounded-2xl bg-[#229ED9] text-white grid place-items-center shrink-0">
+          <Send size={18} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="font-display text-2xl font-bold leading-tight">Telegram alerts</h2>
+            <span className="chip bg-sun-300 text-ink inline-flex items-center gap-1 shrink-0"><Crown size={12} /> Premium</span>
+          </div>
+          <p className="text-sm text-ink/55">Price alerts &amp; updates delivered to your phone on Telegram — even when you're off the site.</p>
+        </div>
+      </div>
+      <div className="mt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-cream-warm rounded-2xl p-4">
+        <p className="text-sm text-ink/70">Connecting Telegram is a Premium feature. Upgrade to get alerts straight to your phone.</p>
+        <Link to="/upgrade" className="btn-primary shrink-0">
+          <Crown size={16} /> Upgrade
+        </Link>
+      </div>
+    </div>
   );
 }
 
