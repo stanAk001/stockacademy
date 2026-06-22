@@ -14,11 +14,14 @@ const RESET_TTL_MIN = 30;
 const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 
 // Auth token lives in an httpOnly cookie so page JavaScript (and any XSS)
-// can't read it. `secure` is on in production (HTTPS only).
+// can't read it. In production we use sameSite: 'none' + secure: true
+// so the cookie works across our Vercel frontend and Render backend.
+// Locally we use 'lax' since no HTTPS is involved on localhost.
+const isProduction = process.env.NODE_ENV === 'production';
 const COOKIE_OPTS = {
   httpOnly: true,
-  sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
+  sameSite: isProduction ? 'none' : 'lax',
+  secure: isProduction,
   maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   path: '/',
 };
@@ -259,7 +262,13 @@ export const me = async (req, res) => {
 };
 
 export const logout = (req, res) => {
-  res.clearCookie('token', { path: '/' });
+  // Match the same sameSite + secure flags used when setting the cookie,
+  // otherwise the browser may refuse to clear it.
+  res.clearCookie('token', {
+    path: '/',
+    sameSite: isProduction ? 'none' : 'lax',
+    secure: isProduction,
+  });
   res.json({ success: true, message: 'Logged out.' });
 };
 
