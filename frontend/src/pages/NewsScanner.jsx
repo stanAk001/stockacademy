@@ -10,6 +10,7 @@ import ShareButton from '../components/ShareButton';
 import ToolHero from '../components/ui/ToolHero';
 import PremiumLock from '../components/ui/PremiumLock';
 import LanguagePicker from '../components/LanguagePicker';
+import ChatMarkdown from '../components/ChatMarkdown';
 import { getLang } from '../lib/lang';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -140,7 +141,7 @@ function Results({ result, onRescan }) {
       {a.summary && (
         <div className="card-soft p-5 min-w-0">
           <p className="text-xs font-bold uppercase tracking-widest text-coral-500 mb-1.5">The gist</p>
-          <p className="text-sm sm:text-base text-ink/80 leading-relaxed break-words">{a.summary}</p>
+          <ChatMarkdown className="text-ink/80 sm:text-base">{a.summary}</ChatMarkdown>
         </div>
       )}
 

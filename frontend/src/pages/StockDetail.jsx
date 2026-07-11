@@ -1,14 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
-} from 'recharts';
-import {
   Sparkles, ArrowUp, ArrowDown, Info, Star, Lock,
-  Loader2, CheckCircle2, AlertTriangle, Globe
+  Loader2, CheckCircle2, AlertTriangle, Globe, Search, Bot
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Layout from '../components/Layout';
+import CandlestickChart from '../components/CandlestickChart';
+import ChatMarkdown from '../components/ChatMarkdown';
 import BuyThisStockButton from '../components/BuyThisStockButton';
 import PdfDownloadButton from '../components/PdfDownloadButton';
 import ShareButton from '../components/ShareButton';
@@ -22,27 +21,49 @@ export default function StockDetail() {
   const isPremium = user?.plan === 'premium';
 
   const [quote, setQuote] = useState(null);
-  const [candles, setCandles] = useState([]);
   const [analysis, setAnalysis] = useState(null);
+  const [brief, setBrief] = useState(null);       // AI overview when we lack live data
+  const [notFound, setNotFound] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     const load = async () => {
       setLoading(true);
+      setQuote(null); setAnalysis(null); setBrief(null); setNotFound(false);
+
+      // Don't let one failing call sink the page — grade each independently.
+      // The chart fetches its own data (with all timeframes), so we skip candles here.
+      const [qR, aR] = await Promise.allSettled([
+        api.get(`/stocks/quote/${encodeURIComponent(symbol)}`),
+        api.get(`/stocks/analysis/${encodeURIComponent(symbol)}`),
+      ]);
+      if (cancelled) return;
+
+      const q = qR.status === 'fulfilled' && qR.value.data.success ? qR.value.data : null;
+      if (q) {
+        setQuote(q);
+        if (aR.status === 'fulfilled' && aR.value.data.success) setAnalysis(aR.value.data);
+        setLoading(false);
+        return;
+      }
+
+      // No live data for this ticker → ask Claude for an overview so search never dead-ends.
       try {
-        const [q, c, a] = await Promise.all([
-          api.get(`/stocks/quote/${symbol}`),
-          api.get(`/stocks/candles/${symbol}?days=90`),
-          api.get(`/stocks/analysis/${symbol}`),
-        ]);
-        if (q.data.success) setQuote(q.data);
-        if (c.data.success) setCandles(c.data.candles);
-        if (a.data.success) setAnalysis(a.data);
+        const { data } = await api.get(
+          `/stocks/ai-brief/${encodeURIComponent(symbol)}?language=${getLang()}`
+        );
+        if (cancelled) return;
+        if (data.success) setBrief(data.brief);
+        else setNotFound(true);
       } catch {
-        toast.error('Failed to load stock data');
-      } finally { setLoading(false); }
+        if (!cancelled) setNotFound(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
     };
     load();
+    return () => { cancelled = true; };
   }, [symbol]);
 
   const addToWatchlist = async () => {
@@ -54,18 +75,10 @@ export default function StockDetail() {
     }
   };
 
-  if (loading || !quote) {
-    return (
-      <Layout>
-        <div className="max-w-6xl mx-auto px-4 py-20">
-          <div className="space-y-4 animate-pulse">
-            <div className="h-12 w-1/3 bg-ink/5 rounded" />
-            <div className="h-64 bg-ink/5 rounded-3xl" />
-          </div>
-        </div>
-      </Layout>
-    );
-  }
+  if (loading) return <PageSkeleton />;
+  if (!quote && brief) return <AiBriefPage symbol={symbol} brief={brief} />;
+  if (!quote && notFound) return <NotFoundStock symbol={symbol} />;
+  if (!quote) return <PageSkeleton />;
 
   const isUp = (quote.change_pct ?? 0) >= 0;
   const fmt = (v) => v == null ? '—' :
@@ -133,25 +146,9 @@ export default function StockDetail() {
           </div>
         </div>
 
-        {/* Chart */}
-        <div className="card-soft p-6 mb-6">
-          <div className="h-72">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={candles}>
-                <defs>
-                  <linearGradient id="cgrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={isUp ? '#10B981' : '#EF4444'} stopOpacity={0.35} />
-                    <stop offset="100%" stopColor={isUp ? '#10B981' : '#EF4444'} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#0F141910" />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#0F141980' }} tickFormatter={(d) => d?.slice(5)} />
-                <YAxis tick={{ fontSize: 10, fill: '#0F141980' }} domain={['auto', 'auto']} />
-                <Tooltip contentStyle={{ background: '#0F1419', border: 'none', borderRadius: 12, color: '#FDF8F0' }}/>
-                <Area type="monotone" dataKey="close" stroke={isUp ? '#10B981' : '#EF4444'} strokeWidth={2.5} fill="url(#cgrad)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
+        {/* Chart — full timeframe set incl. intraday, line/candle toggle, hover readout */}
+        <div className="card-soft p-4 sm:p-6 mb-6">
+          <CandlestickChart symbol={quote.symbol} height={360} />
         </div>
 
         {analysis && (
@@ -302,7 +299,7 @@ function AiVerdict({ ticker, displaySymbol }) {
       {status === 'done' && data && (
         <div className="space-y-4">
           <p className="font-display text-lg font-semibold text-sun-300">{data.headline}</p>
-          <p className="text-cream/85 text-sm leading-relaxed">{data.plain_english}</p>
+          <ChatMarkdown tone="dark" className="text-cream/85">{data.plain_english}</ChatMarkdown>
 
           <div className="grid sm:grid-cols-2 gap-3">
             <div className="bg-cream/5 rounded-2xl p-4">
@@ -326,7 +323,7 @@ function AiVerdict({ ticker, displaySymbol }) {
           {data.for_beginners && (
             <div className="bg-sun-300/10 rounded-2xl p-4">
               <p className="text-xs font-bold uppercase tracking-wider text-sun-300 mb-1">If you're new to this</p>
-              <p className="text-sm text-cream/85 leading-relaxed">{data.for_beginners}</p>
+              <ChatMarkdown tone="dark" className="text-cream/85">{data.for_beginners}</ChatMarkdown>
             </div>
           )}
 
@@ -449,5 +446,122 @@ function MetricGroup({ title, items }) {
         ))}
       </div>
     </div>
+  );
+}
+
+// Shown while data loads and as a safety fallback.
+function PageSkeleton() {
+  return (
+    <Layout>
+      <div className="max-w-6xl mx-auto px-4 py-20">
+        <div className="space-y-4 animate-pulse">
+          <div className="h-12 w-1/3 bg-ink/5 rounded" />
+          <div className="h-64 bg-ink/5 rounded-3xl" />
+        </div>
+      </div>
+    </Layout>
+  );
+}
+
+// When we have no live data for a ticker, Claude identifies the company and
+// gives a plain-English overview — so "search any stock" never dead-ends.
+function AiBriefPage({ symbol, brief }) {
+  const c = brief.company || {};
+  const displaySym = (symbol || '').toUpperCase();
+  return (
+    <Layout>
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-6">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            {c.exchange && <span className="text-xs font-bold uppercase tracking-widest text-ink/50">{c.exchange}</span>}
+            {c.country && <><span className="text-xs text-ink/40">·</span><span className="chip bg-ink/5 text-ink/70">{c.country}</span></>}
+            {c.sector && <><span className="text-xs text-ink/40">·</span><span className="chip bg-ink/5 text-ink/70">{c.sector}</span></>}
+          </div>
+          <h1 className="font-display text-4xl sm:text-5xl font-black leading-tight font-mono">{displaySym}</h1>
+          {c.name && <p className="text-lg text-ink/60 mt-1">{c.name}</p>}
+        </div>
+
+        <div className="card-dark p-5 mb-6 flex gap-3">
+          <div className="w-9 h-9 rounded-full bg-sun-300/20 grid place-items-center shrink-0">
+            <Bot size={18} className="text-sun-300" />
+          </div>
+          <div>
+            <p className="text-xs font-bold uppercase tracking-widest text-sun-300 mb-1">AI overview</p>
+            <p className="text-cream/80 text-sm leading-relaxed">
+              We don't carry live pricing or metrics for this ticker yet, so here's an AI overview from
+              what's publicly known about the company. It's educational context — not live market data.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-6">
+          {c.what_it_does && (
+            <div className="card-soft p-6">
+              <p className="text-xs font-bold uppercase tracking-widest text-coral-500 mb-1.5">What this company does</p>
+              <ChatMarkdown className="text-ink/80">{c.what_it_does}</ChatMarkdown>
+            </div>
+          )}
+
+          {(brief.headline || brief.plain_english) && (
+            <div className="card-soft p-6">
+              {brief.headline && <p className="font-display text-xl font-bold text-ink mb-2">{brief.headline}</p>}
+              {brief.plain_english && <ChatMarkdown className="text-ink/80">{brief.plain_english}</ChatMarkdown>}
+            </div>
+          )}
+
+          {(brief.strengths?.length > 0 || brief.watch_outs?.length > 0) && (
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="card-soft p-5">
+                <p className="text-xs font-bold uppercase tracking-wider text-bull-600 mb-2 flex items-center gap-1.5"><CheckCircle2 size={13} /> Strengths</p>
+                <ul className="space-y-1.5 text-sm text-ink/80">
+                  {(brief.strengths || []).map((s, i) => <li key={i} className="flex gap-2"><span className="text-bull-600">+</span><span>{s}</span></li>)}
+                </ul>
+              </div>
+              <div className="card-soft p-5">
+                <p className="text-xs font-bold uppercase tracking-wider text-coral-500 mb-2 flex items-center gap-1.5"><AlertTriangle size={13} /> Watch-outs</p>
+                <ul className="space-y-1.5 text-sm text-ink/80">
+                  {(brief.watch_outs || []).map((s, i) => <li key={i} className="flex gap-2"><span className="text-coral-500">!</span><span>{s}</span></li>)}
+                </ul>
+              </div>
+            </div>
+          )}
+
+          {brief.for_beginners && (
+            <div className="rounded-2xl p-5 bg-sun-100/50 border border-sun-300/30">
+              <p className="text-xs font-bold uppercase tracking-wider text-ink/60 mb-1">If you're new to this</p>
+              <ChatMarkdown className="text-ink/80">{brief.for_beginners}</ChatMarkdown>
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-3">
+            <BuyThisStockButton symbol={displaySym} />
+            <Link to="/rankings" className="btn-ghost text-sm"><Search size={14} /> Browse stocks</Link>
+          </div>
+
+          <p className="text-[11px] text-ink/45 italic">{brief.disclaimer}</p>
+        </div>
+      </div>
+    </Layout>
+  );
+}
+
+function NotFoundStock({ symbol }) {
+  return (
+    <Layout>
+      <div className="max-w-xl mx-auto px-4 py-24 text-center">
+        <div className="w-14 h-14 rounded-full bg-ink/5 grid place-items-center mx-auto mb-4">
+          <Search size={22} className="text-ink/40" />
+        </div>
+        <h1 className="font-display text-2xl font-black mb-2">We couldn't find “{(symbol || '').toUpperCase()}”</h1>
+        <p className="text-ink/60 text-sm mb-6 max-w-md mx-auto">
+          That ticker didn't match a stock we track or one our AI could recognise. Double-check the
+          symbol, or search by the company's name.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Link to="/rankings" className="btn-primary"><Search size={15} /> Browse stocks</Link>
+          <Link to="/dashboard" className="btn-ghost">Back to dashboard</Link>
+        </div>
+      </div>
+    </Layout>
   );
 }

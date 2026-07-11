@@ -400,7 +400,10 @@ export default function Landing() {
             </h1>
 
             <p className="mt-5 sm:mt-7 text-base sm:text-xl text-ink/70 leading-relaxed max-w-xl">
-              Most people gamble on stocks because nobody ever explained them. <strong className="text-ink font-semibold">We change that.</strong> Any NGX or US stock, in plain English. $100k to practice with. Courses and mentors that actually teach. Everything you need to <em>understand</em> the market — not gamble on it.
+              Stop gambling on stocks and start understanding them. StockAcademia teaches you every NGX and US stock in plain English, with{' '}
+              <strong className="font-bold text-ink bg-sun-300/60 rounded-[3px] px-1 box-decoration-clone">free</strong> courses,{' '}
+              <strong className="text-ink font-semibold">$100,000</strong> to practise on, and mentors when you're ready for one. When it's time for real money, you'll invest with{' '}
+              <strong className="text-ink font-semibold">confidence, not luck.</strong>
             </p>
 
             <div className="mt-5 sm:mt-7 flex flex-wrap gap-3">

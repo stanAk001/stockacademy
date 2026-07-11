@@ -71,16 +71,19 @@ async function fetchFundamentals(symbol) {
 
 /**
  * Compute price returns and volatility from historical data.
+ * Exported so the on-demand Finnhub refresh can borrow it (Finnhub's free tier
+ * doesn't expose volatility/drawdown, and Yahoo's chart endpoint is reliable).
  */
-async function fetchHistoricalMetrics(symbol) {
+export async function fetchHistoricalMetrics(symbol) {
   try {
     const now = new Date();
     const oneYearAgo = new Date(now);
     oneYearAgo.setFullYear(now.getFullYear() - 1);
 
-    // chart() is the current Yahoo API; historical() is deprecated and just
-    // proxies to chart() anyway. chart() returns { meta, quotes, events }.
-    const chart = await yahooFinance.chart(symbol, {
+    // Yahoo uses a dash for class shares (BRK-B), while our DB / Finnhub use a
+    // dot (BRK.B). chart() is the current API; historical() just proxies to it.
+    const yahooSymbol = symbol.replace(/\./g, '-');
+    const chart = await yahooFinance.chart(yahooSymbol, {
       period1: oneYearAgo,
       period2: now,
       interval: '1d',

@@ -1,6 +1,7 @@
 import db from '../config/db.js';
 import { notifyNewSignup } from '../services/telegramService.js';
 import { updateAllUSStocks, updateSingleStock } from '../services/stockFundamentalsUpdater.js';
+import { populateNgxFundamentals } from '../services/ngxFundamentals.js';
 
 function requireAdmin(req, res) {
   if (!req.user?.is_admin) {
@@ -523,9 +524,19 @@ export const bulkUpdatePrices = async (req, res) => {
         continue;
       }
       try {
+        // Derive the day's move from the previously stored price, so NGX (which has
+        // no live feed) gets real day_change_pct — that powers the recap's top movers.
+        const prev = await db.query('SELECT last_price FROM stocks WHERE symbol = $1', [symbol]);
+        const old = prev.rows[0]?.last_price != null ? parseFloat(prev.rows[0].last_price) : null;
+        const changePct = old && old > 0 ? +(((price - old) / old) * 100).toFixed(2) : null;
         const result = await db.query(
-          `UPDATE stocks SET last_price = $1, data_updated_at = NOW() WHERE symbol = $2`,
-          [price, symbol]
+          `UPDATE stocks
+           SET last_price = $1,
+               prev_close = $2,
+               day_change_pct = COALESCE($3, day_change_pct),
+               data_updated_at = NOW()
+           WHERE symbol = $4`,
+          [price, old, changePct, symbol]
         );
         if (result.rowCount > 0) updatedCount++;
       } catch (e) {
@@ -553,6 +564,24 @@ export const refreshUSStocks = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Refresh failed' });
+  }
+};
+
+/* ============================================
+ * POST /api/admin/stocks/refresh-ngx
+ * Populate NGX reference fundamentals via Claude (no live NGX feed exists).
+ * ============================================ */
+export const refreshNgxFundamentals = async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+  try {
+    const result = await populateNgxFundamentals();
+    if (!result.ok) {
+      return res.status(502).json({ success: false, message: `Could not refresh NGX data (${result.error}). Check ANTHROPIC_API_KEY + credit.` });
+    }
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'NGX refresh failed' });
   }
 };
 

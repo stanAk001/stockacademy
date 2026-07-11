@@ -26,6 +26,7 @@ router.patch('/forum/comments/:id', admin.moderateComment);
 // Revenue & analytics
 router.get('/revenue', admin.getRevenue);
 router.post('/stocks/refresh-us', admin.refreshUSStocks);
+router.post('/stocks/refresh-ngx', admin.refreshNgxFundamentals);
 router.post('/stocks/refresh-one/:symbol', admin.refreshOneStock);
 
 // NGX stock data management

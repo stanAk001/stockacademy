@@ -10,6 +10,7 @@
 // ============================================================
 import db from '../config/db.js';
 import { analyzeWithAI, parseJsonFromAI } from '../services/aiProvider.js';
+import { refreshUsSnapshots } from '../services/marketSnapshot.js';
 
 const SITE = 'StockAcademia';
 const DISCLAIMER = 'Educational analysis only — not financial advice. Investment decisions are yours to make.';
@@ -32,6 +33,21 @@ async function topMovers(country) {
   const n = (v) => (v == null ? null : +parseFloat(v).toFixed(2));
   const map = (r) => ({ symbol: r.display_symbol, name: r.name, change_pct: n(r.day_change_pct) });
   return { gainers: rows.slice(0, 5).map(map), losers: rows.slice(-5).reverse().map(map) };
+}
+
+// Notable Nigerian companies we track — the fallback context for the NGX section
+// on days we have no live day-change feed (Finnhub/Yahoo don't cover the NGX).
+// Real companies + price levels, so the AI writes something honest, never invented moves.
+async function ngxNotable() {
+  const { rows } = await db.query(
+    `SELECT display_symbol, name, sector, last_price
+     FROM stocks
+     WHERE country = 'NG' AND is_active = TRUE AND last_price IS NOT NULL
+     ORDER BY last_price DESC NULLS LAST
+     LIMIT 10`
+  );
+  const n = (v) => (v == null ? null : +parseFloat(v).toFixed(2));
+  return rows.map((r) => ({ symbol: r.display_symbol, name: r.name, sector: r.sector || null, price: n(r.last_price) }));
 }
 
 async function logRecapUsage(result) {
@@ -67,15 +83,38 @@ export async function generateDailyRecap({ force = false } = {}) {
   const existing = await db.query('SELECT id FROM market_recaps WHERE slug = $1', [slug]);
   if (existing.rows.length && !force) return { ok: true, skipped: true, slug };
 
-  const data = { date: today, nigeria: await topMovers('NG'), united_states: await topMovers('US') };
+  const usMovers = await topMovers('US');
+  const ngMovers = await topMovers('NG');
+  const ngHasMoves = ngMovers.gainers.length + ngMovers.losers.length > 0;
+  const data = {
+    date: today,
+    united_states: { movers: usMovers },
+    nigeria: {
+      has_moves: ngHasMoves,
+      movers: ngMovers,
+      // only needed as fallback context when there are no live NGX moves today
+      notable: ngHasMoves ? [] : await ngxNotable(),
+    },
+  };
+
   const system =
     `You are a financial journalist writing a SHORT daily market recap for BEGINNER investors ` +
-    `(Nigerian NGX + US markets) on ${SITE}, an educational platform. Use ONLY the movers data given. ` +
+    `(Nigerian NGX + US markets) on ${SITE}, an educational platform. ` +
+    `DATA SHAPE: "united_states.movers" = {gainers,losers} for the US. "nigeria.has_moves" says whether ` +
+    `live NGX day-change data was available today; "nigeria.movers" = {gainers,losers} for the NGX; ` +
+    `"nigeria.notable" lists real Nigerian companies we track (name, sector, price level). ` +
+    `RULES — never invent price moves. For the "us" array: 2-4 short beginner bullets based ONLY on ` +
+    `united_states.movers. For the "nigeria" array: if nigeria.has_moves is TRUE, write 2-4 bullets based ` +
+    `on nigeria.movers. If nigeria.has_moves is FALSE, today's live NGX moves weren't available — do NOT ` +
+    `fake moves. Instead write 2-3 bullets as an honest "NGX names in focus" segment using ` +
+    `nigeria.notable: name a couple of the real companies, their sector, and one beginner-friendly thing ` +
+    `to understand or watch about the Nigerian market — make explicit these are companies to KNOW, not ` +
+    `today's movers. Always give BOTH markets a real, useful section. ` +
     `Plain English, neutral and educational — no hype, no "guaranteed", no buy/sell calls, no price targets. ` +
-    `Teach a small lesson where natural. Respond with ONLY valid JSON (no markdown fences): ` +
+    `Respond with ONLY valid JSON (no markdown fences): ` +
     `{"title": string (SEO-friendly headline including the date and 1-2 notable names), ` +
-    `"meta_description": string (<=155 chars, compelling), "intro": string (1-2 sentences), ` +
-    `"nigeria": string[] (2-4 short bullets), "us": string[] (2-4 short bullets), ` +
+    `"meta_description": string (<=155 chars, compelling), "intro": string (1-2 sentences covering both ` +
+    `markets), "nigeria": string[] (2-4 short bullets), "us": string[] (2-4 short bullets), ` +
     `"takeaway": string (one-sentence lesson for a beginner)}.`;
 
   let result;
@@ -108,6 +147,7 @@ export const listInsights = async (req, res) => {
   const { rows } = await db.query(
     `SELECT slug, title, summary, published_at FROM market_recaps ORDER BY published_at DESC LIMIT 50`
   );
+  res.set('Cache-Control', 'public, max-age=300'); // recaps change once a day
   res.json({ success: true, insights: rows });
 };
 
@@ -120,12 +160,37 @@ export const getInsight = async (req, res) => {
   res.json({ success: true, insight: rows[0] });
 };
 
-/* ---- admin: generate now (for testing) ---- */
+/* ---- admin: generate now (button in the admin hub) ---- */
 export const adminGenerateRecap = async (req, res) => {
   if (!req.user?.is_admin) return res.status(403).json({ success: false, message: 'Admins only' });
+  // Top up live US prices first so "top movers" is fresh, then write today's recap.
+  await refreshUsSnapshots().catch((e) => console.warn('recap snapshot refresh failed:', e.message));
   const r = await generateDailyRecap({ force: true });
   if (!r.ok) return res.status(502).json({ success: false, message: `Could not generate (${r.error}). Check ANTHROPIC_API_KEY + credit.` });
   res.json({ success: true, ...r });
+};
+
+/* ---- external scheduler: full daily pipeline ----
+ * POST /api/insights/cron/daily  (secret via x-cron-secret header or ?token=)
+ *
+ * node-cron only fires while the process is awake; on a sleeping host (Render
+ * free tier) the daily job never runs. Point a free external scheduler
+ * (Render Cron Job, cron-job.org, GitHub Actions) at this once a day: the ping
+ * wakes the server, refreshes US price snapshots, then writes today's recap. */
+export const cronDailyRecap = async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const provided = req.get('x-cron-secret') || req.query.token;
+  if (!secret || provided !== secret) {
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+  try {
+    const snapshot = await refreshUsSnapshots().catch((e) => ({ ok: false, error: e.message }));
+    const recap = await generateDailyRecap({ force: Boolean(req.query.force) });
+    return res.json({ success: recap.ok !== false, snapshot, recap });
+  } catch (err) {
+    console.error('cronDailyRecap error:', err);
+    return res.status(500).json({ success: false, message: 'Daily pipeline failed' });
+  }
 };
 
 /* ============================================================

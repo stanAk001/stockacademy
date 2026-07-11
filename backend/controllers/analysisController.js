@@ -188,6 +188,7 @@ export const getRankings = async (req, res) => {
       pe_ratio: num(s.pe_ratio, null),
     }));
 
+    res.set('Cache-Control', 'public, max-age=120'); // rankings shift slowly
     res.json({ success: true, metric, label: m.label, country: country || 'ALL', rankings });
   } catch (err) {
     console.error(err);

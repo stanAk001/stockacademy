@@ -24,9 +24,33 @@ const jitter = (base) => {
   return +(base * (1 + pct)).toFixed(2);
 };
 
-function generateSyntheticCandles(basePrice, days) {
+function generateSyntheticCandles(basePrice, days, intradayInterval) {
   const candles = [];
   let price = basePrice * 0.92;
+
+  // Intraday demo: minute-stepped bars across a few ~6.5h trading days.
+  if (intradayInterval) {
+    const stepMin = intradayInterval === '5m' ? 5 : 30;
+    const barsPerDay = Math.floor((6.5 * 60) / stepMin);
+    const total = barsPerDay * Math.max(1, days);
+    let t = Date.now() - total * stepMin * 60 * 1000;
+    for (let i = 0; i < total; i++) {
+      const open = price;
+      const close = +(open * (1 + (Math.random() - 0.49) * 0.006)).toFixed(2);
+      const high = +(Math.max(open, close) * (1 + Math.random() * 0.003)).toFixed(2);
+      const low = +(Math.min(open, close) * (1 - Math.random() * 0.003)).toFixed(2);
+      candles.push({
+        time: Math.floor(t / 1000),
+        date: new Date(t).toISOString().split('T')[0],
+        open, high, low, close,
+        volume: Math.floor(Math.random() * 200000 + 50000),
+      });
+      price = close;
+      t += stepMin * 60 * 1000;
+    }
+    return candles;
+  }
+
   for (let i = days; i >= 0; i--) {
     const open = price;
     const close = +(open * (1 + (Math.random() - 0.48) * 0.03)).toFixed(2);
@@ -35,6 +59,7 @@ function generateSyntheticCandles(basePrice, days) {
     const date = new Date();
     date.setDate(date.getDate() - i);
     candles.push({
+      time: Math.floor(date.getTime() / 1000),
       date: date.toISOString().split('T')[0],
       open, high, low, close,
       volume: Math.floor(Math.random() * 1000000 + 500000),
@@ -124,14 +149,29 @@ export const getCandles = async (req, res) => {
     const symbol = req.params.symbol.toUpperCase();
     const range = req.query.range || '6M';
 
+    // Intraday ranges use finer Yahoo intervals; everything else is daily.
+    const INTRADAY = {
+      '1D': { interval: '5m', days: 1 },
+      '5D': { interval: '30m', days: 6 },
+    };
     const rangeToDays = {
+      '1W': 7,
       '1M': 30,
       '3M': 90,
       '6M': 180,
       '1Y': 365,
       '5Y': 1825,
+      'MAX': 3650, // ~10 years
     };
-    const days = rangeToDays[range] || 180;
+    const intra = INTRADAY[range];
+    let days;
+    if (intra) {
+      days = intra.days;
+    } else if (range === 'YTD') {
+      days = Math.ceil((Date.now() - new Date(new Date().getFullYear(), 0, 1).getTime()) / 86400000) + 1;
+    } else {
+      days = rangeToDays[range] || 180;
+    }
 
     // Try Yahoo Finance for US-listed stocks
     const isLikelyUS = !symbol.includes('.NG') && !symbol.includes('.LG');
@@ -140,7 +180,7 @@ export const getCandles = async (req, res) => {
       try {
         const period2 = new Date();
         const period1 = new Date();
-        period1.setDate(period1.getDate() - days - 10);
+        period1.setDate(period1.getDate() - days - (intra ? 1 : 10));
 
         // chart() replaces the deprecated historical(); it returns
         // { meta, quotes, events }. quotes can include gap rows with null OHLC
@@ -148,22 +188,33 @@ export const getCandles = async (req, res) => {
         const chart = await yahooFinanceClient.chart(symbol, {
           period1,
           period2,
-          interval: '1d',
+          interval: intra?.interval || '1d',
         });
         const history = (chart?.quotes || []).filter(
           (h) => h.open != null && h.high != null && h.low != null && h.close != null
         );
 
         if (history.length > 0) {
-          const candles = history.map((h) => ({
-            date: new Date(h.date).toISOString().split('T')[0],
-            open: +h.open.toFixed(2),
-            high: +h.high.toFixed(2),
-            low: +h.low.toFixed(2),
-            close: +h.close.toFixed(2),
-            volume: h.volume || 0,
-          }));
-          return res.json({ success: true, symbol, candles, source: 'yahoo' });
+          // Unix seconds for every range so the chart series uses one time type.
+          // Dedupe/keep ascending — lightweight-charts requires strictly increasing time.
+          const seen = new Set();
+          const candles = [];
+          for (const h of history) {
+            const time = Math.floor(new Date(h.date).getTime() / 1000);
+            if (seen.has(time)) continue;
+            seen.add(time);
+            candles.push({
+              time,
+              date: new Date(h.date).toISOString().split('T')[0],
+              open: +h.open.toFixed(2),
+              high: +h.high.toFixed(2),
+              low: +h.low.toFixed(2),
+              close: +h.close.toFixed(2),
+              volume: h.volume || 0,
+            });
+          }
+          candles.sort((a, b) => a.time - b.time);
+          return res.json({ success: true, symbol, candles, source: 'yahoo', intraday: Boolean(intra) });
         }
       } catch (err) {
         console.warn(`Yahoo candles failed for ${symbol}:`, err.message);
@@ -172,8 +223,8 @@ export const getCandles = async (req, res) => {
 
     // Fallback: synthetic candles
     const base = mockPrices[symbol]?.price || 100;
-    const candles = generateSyntheticCandles(base, days);
-    res.json({ success: true, symbol, candles, source: 'synthetic' });
+    const candles = generateSyntheticCandles(base, Math.min(days, 400), intra?.interval);
+    res.json({ success: true, symbol, candles, source: 'synthetic', intraday: Boolean(intra) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Failed to fetch candles' });

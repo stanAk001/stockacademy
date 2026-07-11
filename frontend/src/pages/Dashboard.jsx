@@ -12,6 +12,7 @@ import TickerTape from '../components/TickerTape';
 import PremiumTools from '../components/PremiumTools';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { MARKET_QUOTES, todaysQuoteIndex } from '../lib/marketQuotes';
 
 const levelLabel = (xp) => {
   if (xp < 50) return { tier: 'Rookie', color: 'bg-ink/10 text-ink' };
@@ -164,23 +165,8 @@ export default function Dashboard() {
 
           {/* Right column */}
           <div className="space-y-6">
-            {/* Daily tip */}
-            <div className="bg-ink text-cream rounded-3xl p-6 relative overflow-hidden">
-              <div className="absolute top-0 right-0 text-sun-300/10 font-display text-8xl font-black leading-none">💡</div>
-              <div className="relative">
-                <div className="flex items-center gap-2 mb-3">
-                  <Flame className="text-sun-300" size={18} />
-                  <p className="text-xs font-bold uppercase tracking-widest text-sun-300">Tip of the day</p>
-                </div>
-                <h3 className="font-display text-xl font-bold leading-snug mb-2">
-                  Time in the market beats timing the market.
-                </h3>
-                <p className="text-sm text-cream/70">
-                  Research from Morgan Stanley shows that missing just the 10 best days in the market over 20 years
-                  cuts your returns in half. Stay invested.
-                </p>
-              </div>
-            </div>
+            {/* Daily tip — rotates through confidence-building market wisdom */}
+            <DailyTip />
 
             {/* Shortcuts */}
             <div className="card-soft p-6">
@@ -300,6 +286,42 @@ function QuickLink({ to, icon: Icon, label, color }) {
       </div>
       <span className="font-semibold text-sm">{label}</span>
     </Link>
+  );
+}
+
+// Rotating market-wisdom card. Starts on today's tip (stable per day), then
+// gently auto-advances; tapping "Next" cycles for those who want more.
+function DailyTip() {
+  const [i, setI] = useState(todaysQuoteIndex());
+  const next = () => setI((v) => (v + 1) % MARKET_QUOTES.length);
+
+  useEffect(() => {
+    const id = setInterval(() => setI((v) => (v + 1) % MARKET_QUOTES.length), 11000);
+    return () => clearInterval(id);
+  }, []);
+
+  const q = MARKET_QUOTES[i];
+  return (
+    <div className="bg-ink text-cream rounded-3xl p-6 relative overflow-hidden">
+      <div className="absolute top-0 right-0 text-sun-300/10 font-display text-8xl font-black leading-none pointer-events-none">💡</div>
+      <div className="relative">
+        <div className="flex items-center gap-2 mb-3">
+          <Flame className="text-sun-300" size={18} />
+          <p className="text-xs font-bold uppercase tracking-widest text-sun-300">Tip of the day</p>
+        </div>
+        <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35 }}>
+          <h3 className="font-display text-xl font-bold leading-snug mb-2">“{q.line}”</h3>
+          {q.author && <p className="text-xs font-semibold text-sun-300/90 mb-2">— {q.author}</p>}
+          <p className="text-sm text-cream/70">{q.note}</p>
+        </motion.div>
+        <div className="flex items-center gap-1.5 mt-4">
+          {MARKET_QUOTES.slice(0, 8).map((_, d) => (
+            <span key={d} className={`h-1 rounded-full transition-all ${d === i % 8 ? 'w-5 bg-sun-300' : 'w-1.5 bg-cream/25'}`} />
+          ))}
+          <button onClick={next} className="ml-auto text-xs font-bold text-sun-300 hover:text-sun-200 transition">Next →</button>
+        </div>
+      </div>
+    </div>
   );
 }
 

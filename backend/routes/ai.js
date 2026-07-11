@@ -45,8 +45,15 @@ const tutorLimit = rateLimit({
   },
 });
 
-// All AI features are premium-only, then rate-limited per user.
-router.use(authenticate, requirePremium, aiDailyLimit);
+// Authenticate everyone first.
+router.use(authenticate);
+
+// AI tutor — free users get a couple of free questions (capped in the controller),
+// then a nudge to upgrade. Premium users are unlimited within the shared daily cap.
+router.post('/tutor', aiDailyLimit, tutorLimit, tutorChat);
+
+// Every other AI tool stays premium-only, then rate-limited per user.
+router.use(requirePremium, aiDailyLimit);
 
 // Premium: the plain-English stock verdict. Cached 24h per stock+language.
 router.get('/explain-stock/:symbol', explainStock);
@@ -54,6 +61,5 @@ router.get('/explain-stock/:symbol', explainStock);
 router.post('/compare-stocks', compareStocks);
 router.post('/analyze-portfolio', analyzePortfolio);
 router.post('/scan-news', scanNews);
-router.post('/tutor', tutorLimit, tutorChat);
 
 export default router;

@@ -1,9 +1,36 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Brain, BarChart3, Newspaper, GraduationCap, Sparkles, Check, ArrowRight } from 'lucide-react';
 import api from '../services/api';
 import LiveDemo from './LiveDemo';
+
+// A curated upward candlestick series for the decorative backdrop (viewBox 1200×200).
+// Mostly green with a couple of red pullbacks, so it reads as a real, rising chart
+// — the goal made visual: learn the market, then watch it grow. y grows downward.
+const CANDLES = [
+  { x: 70, o: 150, c: 142, h: 134, l: 156, up: true },
+  { x: 150, o: 142, c: 150, h: 138, l: 156, up: false },
+  { x: 230, o: 150, c: 134, h: 128, l: 154, up: true },
+  { x: 310, o: 134, c: 126, h: 120, l: 138, up: true },
+  { x: 390, o: 126, c: 132, h: 122, l: 138, up: false },
+  { x: 470, o: 132, c: 116, h: 110, l: 136, up: true },
+  { x: 550, o: 116, c: 110, h: 104, l: 122, up: true },
+  { x: 630, o: 110, c: 118, h: 106, l: 124, up: false },
+  { x: 710, o: 118, c: 98, h: 92, l: 122, up: true },
+  { x: 790, o: 98, c: 90, h: 84, l: 104, up: true },
+  { x: 870, o: 90, c: 96, h: 86, l: 102, up: false },
+  { x: 950, o: 96, c: 76, h: 70, l: 100, up: true },
+  { x: 1030, o: 76, c: 64, h: 58, l: 80, up: true },
+  { x: 1110, o: 64, c: 50, h: 44, l: 70, up: true },
+];
+const TREND = '0,158 ' + CANDLES.map((k) => `${k.x},${k.c}`).join(' ') + ' 1200,44';
+
+// Points for the "live plotter" dot that traces the trend line on a loop.
+const TREND_PTS = [[0, 158], ...CANDLES.map((k) => [k.x, k.c]), [1200, 44]];
+const SCAN_X = TREND_PTS.map((p) => p[0]);
+const SCAN_Y = TREND_PTS.map((p) => p[1]);
+const SCAN_OP = TREND_PTS.map((_, i) => (i === 0 || i === TREND_PTS.length - 1 ? 0 : 0.9));
 
 // ============================================================
 // PremiumValue — the "what you get & why it's worth it" showcase.
@@ -48,6 +75,7 @@ export default function PremiumValue({
       .catch(() => {});
   }, [currency]);
 
+  const reduce = useReducedMotion();
   const cur = currency === 'USD' || currency === 'NGN' ? currency : detected;
   const d = DATA[cur];
   const { a, b } = d.proof;
@@ -66,10 +94,65 @@ export default function PremiumValue({
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.5 }}
-      className="relative overflow-hidden rounded-2xl sm:rounded-[2rem] bg-ink text-cream p-4 sm:p-7 lg:p-9 grain-overlay"
+      className="relative overflow-hidden rounded-2xl sm:rounded-[2rem] bg-ink text-cream p-5 sm:p-7 lg:p-9 grain-overlay ring-1 ring-cream/10"
     >
+      {/* Decorative canvas — a faint candlestick chart trending UP, tied together by
+          a rising trend line that draws itself in, with a live pulse at the peak.
+          The iconic market motif (NGX + US) and the project's whole promise made
+          visual: learn the market, then watch it grow. Crisp solid shapes, no glows. */}
+      <div aria-hidden className="absolute inset-0 z-0 pointer-events-none">
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(253,248,240,0.055) 1px, transparent 1px), linear-gradient(90deg, rgba(253,248,240,0.045) 1px, transparent 1px)',
+            backgroundSize: '40px 40px',
+          }}
+        />
+        <svg className="absolute inset-x-0 bottom-0 w-full h-40 sm:h-56" viewBox="0 0 1200 200" preserveAspectRatio="none" fill="none">
+          {/* candlesticks assemble themselves, left to right */}
+          {CANDLES.map((k, i) => {
+            const color = k.up ? '#10B981' : '#EF4444';
+            const op = k.up ? 0.2 : 0.15;
+            const top = Math.min(k.o, k.c);
+            const h = Math.max(2.5, Math.abs(k.c - k.o));
+            return (
+              <motion.g
+                key={i}
+                initial={reduce ? false : { opacity: 0, y: 14 }}
+                animate={reduce ? undefined : { opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: 0.15 + i * 0.06, ease: 'easeOut' }}
+              >
+                <line x1={k.x} x2={k.x} y1={k.h} y2={k.l} stroke={color} strokeOpacity={op} strokeWidth="2" />
+                <rect x={k.x - 8} y={top} width="16" height={h} rx="1.5" fill={color} fillOpacity={op} />
+              </motion.g>
+            );
+          })}
+          {/* soft area + rising trend line through the closes */}
+          <polygon points={`${TREND} 1200,200 0,200`} fill="#10B981" fillOpacity="0.05" />
+          <motion.polyline
+            points={TREND}
+            stroke="#10B981" strokeWidth="2.75" strokeOpacity="0.36" strokeLinecap="round" strokeLinejoin="round"
+            initial={reduce ? false : { pathLength: 0 }}
+            animate={reduce ? undefined : { pathLength: 1 }}
+            transition={{ duration: 1.6, ease: 'easeOut', delay: 1.05 }}
+          />
+          {/* constant "current high" marker */}
+          <circle cx="1110" cy="50" r="4" fill="#10B981" fillOpacity="0.4" />
+          {/* live plotter — a dot that keeps tracing the growth line */}
+          {!reduce && (
+            <motion.circle
+              r="5" fill="#10B981"
+              initial={{ opacity: 0 }}
+              animate={{ cx: SCAN_X, cy: SCAN_Y, opacity: SCAN_OP }}
+              transition={{ duration: 3.6, repeat: Infinity, ease: 'linear', delay: 2.7, repeatDelay: 1.4 }}
+            />
+          )}
+        </svg>
+      </div>
+
       {/* Header */}
-      <div className="relative max-w-2xl mb-5 sm:mb-7">
+      <div className="relative z-10 max-w-2xl mb-5 sm:mb-7">
         <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cream/10 text-sun-300 text-[10px] sm:text-[11px] font-black uppercase tracking-[0.15em] mb-3 sm:mb-4">
           <Sparkles size={11} /> {eyebrow}
         </div>
@@ -79,19 +162,19 @@ export default function PremiumValue({
         <p className="text-cream/70 text-[12.5px] sm:text-base break-words leading-relaxed">{sub}</p>
       </div>
 
-      <div className="relative grid lg:grid-cols-12 gap-4 sm:gap-6 lg:gap-8 items-stretch">
+      <div className="relative z-10 grid lg:grid-cols-12 gap-4 sm:gap-6 lg:gap-8 items-stretch">
         {/* LEFT: the 4 hero AI tools (same four the live demo cycles through) */}
         <div className="lg:col-span-7 grid sm:grid-cols-2 gap-2.5 sm:gap-4">
-          <Perk icon={Brain} title="Compare any two stocks" tip={`Ask: "${a.sym} or ${b.sym}?"`}>
+          <Perk index={0} icon={Brain} title="Compare any two stocks" tip={`Ask: "${a.sym} or ${b.sym}?"`}>
             A clear side-by-side verdict on growth, risk and value — in seconds, no jargon.
           </Perk>
-          <Perk icon={BarChart3} title="Analyze your portfolio" tip={`e.g. "38% in one stock — trim it"`}>
+          <Perk index={1} icon={BarChart3} title="Analyze your portfolio" tip={`e.g. "38% in one stock — trim it"`}>
             Spot over-exposure to a stock or sector, and exactly what to rebalance.
           </Perk>
-          <Perk icon={Newspaper} title="Scan the news for you" tip="31 articles → the 4 that matter">
+          <Perk index={2} icon={Newspaper} title="Scan the news for you" tip="31 articles → the 4 that matter">
             Thirty days of headlines on any stock, cut down to what actually moves the price.
           </Perk>
-          <Perk icon={GraduationCap} title="An AI tutor in every lesson" tip={`Ask: "what is a P/E?"`}>
+          <Perk index={3} icon={GraduationCap} title="An AI tutor in every lesson" tip={`Ask: "what is a P/E?"`}>
             Stuck on a concept? Ask and get it explained simply — in your language too.
           </Perk>
         </div>
@@ -103,7 +186,7 @@ export default function PremiumValue({
       </div>
 
       {/* Everything else Premium unlocks — the full picture, grouped */}
-      <div className="relative grid sm:grid-cols-2 gap-3 sm:gap-4 mt-4 sm:mt-6">
+      <div className="relative z-10 grid sm:grid-cols-2 gap-3 sm:gap-4 mt-4 sm:mt-6">
         <div className="bg-cream/[0.05] border border-cream/10 rounded-2xl p-4 sm:p-5">
           <p className="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.15em] text-sun-300 mb-2.5">Real people in your corner</p>
           <div className="space-y-2">
@@ -129,7 +212,7 @@ export default function PremiumValue({
 
       {/* Optional price + CTA footer (dashboard upsell) */}
       {showPricing && (
-        <div className="relative mt-5 sm:mt-6 pt-5 sm:pt-6 border-t border-cream/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+        <div className="relative z-10 mt-5 sm:mt-6 pt-5 sm:pt-6 border-t border-cream/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
           <div className="min-w-0">
             <p className="font-display text-xl sm:text-3xl font-black">
               {d.mo}<span className="text-cream/50 text-sm sm:text-base font-bold"> / month</span>
@@ -153,9 +236,17 @@ export default function PremiumValue({
 
 // A perk as a tactile card: icon, title, plain-English benefit, and a concrete
 // "this is what you'd actually get" example pill.
-function Perk({ icon: Icon, title, children, tip }) {
+function Perk({ icon: Icon, title, children, tip, index = 0 }) {
+  const reduce = useReducedMotion();
   return (
-    <div className="group bg-cream/[0.06] border border-cream/10 rounded-xl sm:rounded-2xl p-3.5 sm:p-5 min-w-0 transition hover:border-sun-300/40 hover:-translate-y-0.5">
+    <motion.div
+      initial={reduce ? false : { opacity: 0, y: 16 }}
+      whileInView={reduce ? undefined : { opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-40px' }}
+      whileHover={reduce ? undefined : { y: -4 }}
+      transition={{ duration: 0.4, delay: index * 0.08, ease: 'easeOut' }}
+      className="group bg-cream/[0.06] border border-cream/10 rounded-xl sm:rounded-2xl p-3.5 sm:p-5 min-w-0 transition hover:border-sun-300/40 hover:bg-cream/[0.08]"
+    >
       <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl bg-sun-300 text-ink grid place-items-center mb-2 sm:mb-3 transition group-hover:scale-105">
         <Icon className="w-4 h-4 sm:w-[18px] sm:h-[18px]" strokeWidth={2.3} />
       </div>
@@ -166,7 +257,7 @@ function Perk({ icon: Icon, title, children, tip }) {
           {tip}
         </p>
       )}
-    </div>
+    </motion.div>
   );
 }
 

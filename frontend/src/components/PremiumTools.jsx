@@ -10,6 +10,7 @@ import { useAuth } from '../context/AuthContext';
 import PremiumValue from './PremiumValue';
 import ShareButton from './ShareButton';
 import LiveDemo from './LiveDemo';
+import ChatMarkdown from './ChatMarkdown';
 import { getLang } from '../lib/lang';
 
 // One dashboard block that surfaces all Phase-1 premium tools.
@@ -190,7 +191,7 @@ function Block({ label, text }) {
   return (
     <div className="min-w-0">
       <p className="text-[11px] font-bold uppercase tracking-wider text-ink/45 mb-0.5">{label}</p>
-      <p className="text-ink/75 break-words">{text}</p>
+      <ChatMarkdown className="text-ink/75">{text}</ChatMarkdown>
     </div>
   );
 }

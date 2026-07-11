@@ -1,5 +1,5 @@
 -- ============================================
--- StockAcademia — Daily market recaps (SEO content engine)
+-- StockAcademy — Daily market recaps (SEO content engine)
 -- Purpose: store AI-generated daily NGX+US market recaps that are served as
 --          public, crawlable HTML pages (/insights) to win organic search
 --          traffic that funnels into signups.

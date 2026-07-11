@@ -29,7 +29,14 @@ const INTL_BROKERS = [
   { name: 'Trading 212', blurb: 'Commission-free, popular across UK & Europe', url: 'https://www.trading212.com' },
 ];
 
-export default function BuyThisStockButton({ symbol, className = '' }) {
+// Trigger styles. Default green suits stock pages; 'dark' stands apart when it
+// sits beneath the green/red practice buttons on the simulator desk.
+const TRIGGER_VARIANTS = {
+  green: 'bg-bull-600 hover:bg-bull-700 text-white',
+  dark: 'bg-ink hover:bg-ink-soft text-cream',
+};
+
+export default function BuyThisStockButton({ symbol, className = '', label, variant = 'green' }) {
   const [open, setOpen] = useState(false);
   const [country, setCountry] = useState(null); // null until /geo resolves
   const [forceView, setForceView] = useState(null); // 'NG' | 'OTHER' manual override
@@ -62,9 +69,9 @@ export default function BuyThisStockButton({ symbol, className = '' }) {
     <>
       <button
         onClick={handleOpen}
-        className={`btn-primary bg-bull-600 hover:bg-bull-700 text-white ${className}`}
+        className={`btn-primary ${TRIGGER_VARIANTS[variant] || TRIGGER_VARIANTS.green} ${className}`}
       >
-        <ShoppingCart size={16} /> Buy {symbol} for real
+        <ShoppingCart size={16} /> {label || <>Buy {symbol} for real</>}
       </button>
 
       <AnimatePresence>

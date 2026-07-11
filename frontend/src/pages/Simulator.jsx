@@ -24,6 +24,7 @@ export default function Simulator() {
   const [search, setSearch] = useState('');
   const [tradeModal, setTradeModal] = useState(null);
   const [tab, setTab] = useState('chart');
+  const [hover, setHover] = useState(null); // hovered chart point → mirrored in the OHLC boxes
 
   const loadAll = async () => {
     try {
@@ -181,30 +182,73 @@ export default function Simulator() {
                   </div>
                 </div>
 
-                <CandlestickChart symbol={selected} height={400} />
+                <CandlestickChart symbol={selected} height={400} onHover={setHover} />
 
-                <div className="grid grid-cols-4 gap-3 mt-5 text-sm">
-                  <Metric label="Open" value={`$${quote?.open?.toFixed(2) ?? '—'}`} />
-                  <Metric label="High" value={`$${quote?.high?.toFixed(2) ?? '—'}`} color="text-bull-600" />
-                  <Metric label="Low" value={`$${quote?.low?.toFixed(2) ?? '—'}`} color="text-bear-500" />
-                  <Metric label="Prev Close" value={`$${quote?.prevClose?.toFixed(2) ?? '—'}`} />
-                </div>
+                {(() => {
+                  // While hovering the chart, the boxes mirror that point (O/H/L only
+                  // exist in candle mode); otherwise they show the live quote.
+                  const hl = hover && hover.open != null;
+                  const money = (v) => (v == null ? '—' : `$${Number(v).toFixed(2)}`);
+                  return (
+                    <div className="grid grid-cols-4 gap-3 mt-5 text-sm">
+                      <Metric label="Open" value={money(hl ? hover.open : quote?.open)} />
+                      <Metric label="High" value={money(hl ? hover.high : quote?.high)} color="text-bull-600" />
+                      <Metric label="Low" value={money(hl ? hover.low : quote?.low)} color="text-bear-500" />
+                      <Metric label={hover ? 'Close' : 'Prev Close'} value={money(hover ? hover.close : quote?.prevClose)} />
+                    </div>
+                  );
+                })()}
               </div>
 
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setTradeModal({ side: 'BUY', symbol: selected, price: quote?.price })}
-                  className="btn-primary flex-1 bg-bull-600 hover:bg-bull-700"
-                >
-                  <ShoppingCart size={16} /> Paper Buy
-                </button>
-                <button
-                  onClick={() => setTradeModal({ side: 'SELL', symbol: selected, price: quote?.price })}
-                  className="btn-primary flex-1 bg-bear-500 hover:bg-bear-600"
-                >
-                  Paper Sell
-                </button>
-                <BuyThisStockButton symbol={selected} className="flex-1" />
+              {/* Practice desk — trade risk-free, then graduate to real money */}
+              <div className="card-soft p-5">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black uppercase tracking-widest text-ink/50">Practice desk</p>
+                    <p className="text-[11px] text-ink/45 mt-0.5">Trade {selected} with virtual cash. No real money, no risk.</p>
+                  </div>
+                  {user?.virtual_balance != null && (
+                    <div className="text-right shrink-0">
+                      <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40">Buying power</p>
+                      <p className="font-mono font-black text-bull-600">
+                        ${Number(user.virtual_balance).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    onClick={() => setTradeModal({ side: 'BUY', symbol: selected, price: quote?.price })}
+                    className="flex flex-col items-center justify-center gap-0.5 py-3 rounded-2xl bg-bull-600 hover:bg-bull-700 text-white transition"
+                  >
+                    <span className="flex items-center gap-1.5 font-black text-base"><TrendingUp size={17} /> Buy</span>
+                    {quote?.price != null && <span className="text-[11px] font-mono text-white/75">@ ${quote.price.toFixed(2)}</span>}
+                  </button>
+                  <button
+                    onClick={() => setTradeModal({ side: 'SELL', symbol: selected, price: quote?.price })}
+                    className="flex flex-col items-center justify-center gap-0.5 py-3 rounded-2xl bg-bear-500 hover:bg-bear-600 text-white transition"
+                  >
+                    <span className="flex items-center gap-1.5 font-black text-base"><TrendingDown size={17} /> Sell</span>
+                    {quote?.price != null && <span className="text-[11px] font-mono text-white/75">@ ${quote.price.toFixed(2)}</span>}
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-3 my-4">
+                  <span className="h-px flex-1 bg-ink/10" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-ink/40">Ready for the real thing?</span>
+                  <span className="h-px flex-1 bg-ink/10" />
+                </div>
+
+                <BuyThisStockButton
+                  symbol={selected}
+                  variant="dark"
+                  label={`Invest in ${selected} for real`}
+                  className="w-full"
+                />
+                <p className="text-[11px] text-ink/45 text-center mt-2">
+                  Practise here until it's second nature, then invest for real with confidence, not luck.
+                </p>
               </div>
 
               <StockAnalysisPanel symbol={selected} />

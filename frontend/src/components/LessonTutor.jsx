@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Sparkles, Loader2, Send, Lock, Clock } from 'lucide-react';
+import { Sparkles, Loader2, Send, Clock } from 'lucide-react';
 import toast from 'react-hot-toast';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import LanguagePicker from './LanguagePicker';
+import ChatMarkdown from './ChatMarkdown';
 import { getLang } from '../lib/lang';
 
 const STARTERS = [
@@ -24,6 +25,8 @@ export default function LessonTutor({ lessonId }) {
   const [lang, setLang] = useState(getLang());
   const [cooldownUntil, setCooldownUntil] = useState(0); // ms timestamp
   const [now, setNow] = useState(Date.now());
+  const [freeLeft, setFreeLeft] = useState(null); // free-tier questions remaining (null = unknown)
+  const [locked, setLocked] = useState(false);     // free allowance used up → upsell
 
   // Tick once a second while a cooldown is active so the countdown updates.
   useEffect(() => {
@@ -51,10 +54,16 @@ export default function LessonTutor({ lessonId }) {
       const { data } = await api.post('/ai/tutor', { lesson_id: lessonId, question, language: lang });
       if (data.success) {
         setMessages((m) => [...m, { role: 'tutor', text: data.answer }]);
+        if (typeof data.free_remaining === 'number') setFreeLeft(data.free_remaining);
       }
     } catch (err) {
       const r = err.response?.data;
-      if (err.response?.status === 429 || r?.limited) {
+      if (err.response?.status === 402 || r?.upgrade) {
+        // Free allowance used up — flip to the upgrade nudge.
+        setLocked(true);
+        setFreeLeft(0);
+        setMessages((m) => [...m, { role: 'tutor', text: r?.message || "That's your free tutor questions used up. Upgrade to Premium to keep going." }]);
+      } else if (err.response?.status === 429 || r?.limited) {
         // Hit the tutor rate limit — start a visible cooldown.
         const secs = r?.retry_after_seconds || 60;
         setCooldownUntil(Date.now() + secs * 1000);
@@ -68,29 +77,8 @@ export default function LessonTutor({ lessonId }) {
     }
   };
 
-  /* Free users: a tasteful nudge. */
-  if (!isPremium) {
-    return (
-      <div className="mt-10 card-soft p-5 sm:p-6 ring-1 ring-ink/5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-start gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-ink grid place-items-center shrink-0">
-              <Sparkles size={18} className="text-sun-300" />
-            </div>
-            <div className="min-w-0">
-              <h3 className="font-display text-lg font-black leading-tight">Stuck? Ask the AI tutor</h3>
-              <p className="text-sm text-ink/55 break-words">
-                A patient tutor that re-explains this lesson any way you need — examples, analogies, plain English.
-              </p>
-            </div>
-          </div>
-          <Link to="/pricing" className="btn-primary bg-ink shrink-0">
-            <Lock size={15} /> Unlock with Premium
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  // Free users get a couple of questions, then this flips true and we upsell.
+  const blocked = !isPremium && (locked || freeLeft === 0);
 
   return (
     <div className="mt-10 card-soft p-5 sm:p-6 min-w-0">
@@ -102,6 +90,11 @@ export default function LessonTutor({ lessonId }) {
           <h3 className="font-display text-lg font-black leading-tight">Ask the AI tutor</h3>
           <p className="text-[11px] text-ink/45">Grounded in this lesson · explains, never advises</p>
         </div>
+        {!isPremium && !blocked && (
+          <span className="shrink-0 text-[10px] font-black uppercase tracking-wider bg-sun-100 text-sun-600 px-2 py-1 rounded-full">
+            {freeLeft == null ? 'Free preview' : `${freeLeft} free left`}
+          </span>
+        )}
         <LanguagePicker value={lang} onChange={setLang} className="shrink-0" />
       </div>
 
@@ -112,7 +105,9 @@ export default function LessonTutor({ lessonId }) {
               <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm break-words ${
                 m.role === 'user' ? 'bg-ink text-cream rounded-br-sm' : 'bg-cream-warm text-ink/85 rounded-bl-sm'
               }`}>
-                <p className="whitespace-pre-line leading-relaxed">{m.text}</p>
+                {m.role === 'user'
+                  ? <p className="whitespace-pre-line leading-relaxed">{m.text}</p>
+                  : <ChatMarkdown className="text-ink/85">{m.text}</ChatMarkdown>}
               </div>
             </div>
           ))}
@@ -124,7 +119,7 @@ export default function LessonTutor({ lessonId }) {
         </div>
       )}
 
-      {messages.length === 0 && (
+      {messages.length === 0 && !blocked && (
         <div className="flex flex-wrap gap-1.5 mb-3">
           {STARTERS.map((s) => (
             <button
@@ -146,26 +141,49 @@ export default function LessonTutor({ lessonId }) {
         </div>
       )}
 
-      <div className="flex items-end gap-2">
-        <textarea
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); } }}
-          rows={1}
-          disabled={cooling}
-          placeholder={cooling ? `Take a short break — back in ${fmtRemaining}` : 'Ask anything about this lesson…'}
-          className="input-field text-sm flex-1 min-w-0 resize-none py-2.5 disabled:opacity-60"
-        />
-        <button
-          onClick={() => ask()}
-          disabled={busy || !input.trim() || cooling}
-          className="shrink-0 w-11 h-11 grid place-items-center rounded-2xl bg-ink text-cream hover:bg-ink-soft transition disabled:opacity-50"
-          aria-label="Send"
-        >
-          {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
-        </button>
-      </div>
-      <p className="text-[10px] text-ink/40 mt-2">Educational only — not financial advice.</p>
+      {blocked ? (
+        /* Free allowance used — the upsell, warm and specific about what they get. */
+        <div className="rounded-2xl bg-ink text-cream p-5 mt-1">
+          <div className="flex items-center gap-2 mb-1.5">
+            <Sparkles size={16} className="text-sun-300" />
+            <p className="text-xs font-black uppercase tracking-widest text-sun-300">You're clearly getting value</p>
+          </div>
+          <h4 className="font-display text-lg font-black leading-snug mb-1.5">Keep the tutor going with Premium</h4>
+          <p className="text-sm text-cream/75 leading-relaxed mb-4">
+            You've used your 2 free questions. Premium unlocks <span className="text-cream font-semibold">unlimited</span> tutoring
+            in English, Pidgin, Yorùbá, Hausa and Igbo, plus AI stock comparisons, news scans and portfolio reviews.
+          </p>
+          <Link to="/pricing" className="btn-primary bg-sun-300 text-ink hover:bg-sun-400">
+            <Sparkles size={15} /> Go Premium
+          </Link>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-end gap-2">
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(); } }}
+              rows={1}
+              disabled={cooling}
+              placeholder={cooling ? `Take a short break — back in ${fmtRemaining}` : 'Ask anything about this lesson…'}
+              className="input-field text-sm flex-1 min-w-0 resize-none py-2.5 disabled:opacity-60"
+            />
+            <button
+              onClick={() => ask()}
+              disabled={busy || !input.trim() || cooling}
+              className="shrink-0 w-11 h-11 grid place-items-center rounded-2xl bg-ink text-cream hover:bg-ink-soft transition disabled:opacity-50"
+              aria-label="Send"
+            >
+              {busy ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            </button>
+          </div>
+          {!isPremium && freeLeft === 1 && (
+            <p className="text-[11px] text-ink/50 mt-2">1 free question left, then Premium keeps it going.</p>
+          )}
+          <p className="text-[10px] text-ink/40 mt-2">Educational only — not financial advice.</p>
+        </>
+      )}
     </div>
   );
 }

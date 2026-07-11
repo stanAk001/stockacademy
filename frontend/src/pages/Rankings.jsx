@@ -74,7 +74,7 @@ export default function Rankings() {
           ))}
         </div>
 
-        <div className="flex gap-2 mb-6 flex-wrap">
+        <div className="flex gap-2 mb-4 flex-wrap">
           {COUNTRIES.map((c) => (
             <button key={c.id} onClick={() => setCountry(c.id)}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${
@@ -84,6 +84,13 @@ export default function Rankings() {
             </button>
           ))}
         </div>
+
+        {country !== 'US' && (
+          <p className="text-[11px] text-ink/45 mb-5 flex items-start gap-1.5">
+            <span className="shrink-0">ℹ️</span>
+            <span>NGX figures are AI-sourced reference estimates (there's no free live NGX data feed yet), computed against real prices — verify before relying on them. US figures are live.</span>
+          </p>
+        )}
 
         {loading ? (
           <div className="space-y-2">
@@ -138,7 +145,11 @@ export default function Rankings() {
                 </motion.div>
               );
             })}
-            {rankings.length === 0 && <div className="p-10 text-center text-ink/50">No stocks with this data yet.</div>}
+            {rankings.length === 0 && (
+              <div className="p-10 text-center text-ink/50">
+                No stocks with this data yet. Try another metric or market.
+              </div>
+            )}
           </div>
         )}
 

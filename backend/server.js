@@ -1,9 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import cron from 'node-cron';
 import { updateAllUSStocks } from './services/stockFundamentalsUpdater.js';
+import { refreshUsSnapshots } from './services/marketSnapshot.js';
 import { checkPriceAlerts } from './services/alertEngine.js';
 import authRoutes from './routes/auth.js';
 import courseRoutes from './routes/courses.js';
@@ -37,6 +39,10 @@ const PORT = process.env.PORT || 5000;
 // Lightweight security headers (no extra dependency). For production, layer on
 // `helmet` with a tuned Content-Security-Policy.
 app.disable('x-powered-by'); // don't advertise the stack
+
+// Gzip responses — big bandwidth + latency win once many users are on at once.
+app.use(compression());
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');            // no MIME sniffing
   res.setHeader('X-Frame-Options', 'DENY');                      // anti-clickjacking
@@ -63,8 +69,16 @@ app.use(cors({
 app.use(express.json({ limit: '6mb' })); // headroom for compressed forum image data URLs
 app.use(cookieParser());
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', service: 'StockAcademia API', timestamp: new Date().toISOString() });
+// Liveness probe — deliberately does NOT touch the DB, so uptime monitors get a
+// fast, always-true answer and can keep a sleeping-tier host awake.
+app.get(['/api/health', '/healthz'], (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({
+    status: 'ok',
+    service: 'StockAcademia API',
+    uptime_seconds: Math.floor(process.uptime()),
+    timestamp: new Date().toISOString(),
+  });
 });
 
 app.use('/api/auth', authRoutes);
@@ -106,6 +120,9 @@ app.use((err, req, res, next) => {
 cron.schedule('0 6 * * *', async () => {
   console.log('[cron] Running daily US stock fundamentals update...');
   await updateAllUSStocks();
+  // Yahoo covers ratios; Finnhub tops up live price + day change (used by recaps,
+  // Compare, and Stock Detail). Runs regardless of whether Yahoo succeeded.
+  await refreshUsSnapshots();
   // Fresh prices in — check alerts right away.
   const fired = await checkPriceAlerts();
   if (fired) console.log(`[cron] Fired ${fired} price alert(s) after price update`);
@@ -156,6 +173,30 @@ cron.schedule('30 6 * * *', async () => {
   }
 }, {
   timezone: 'Africa/Lagos',
+});
+
+// Keep-alive: ping our own public URL so a sleeping-tier host (Render free)
+// stays warm. Render exposes RENDER_EXTERNAL_URL automatically; SELF_PING_URL
+// overrides it. This only holds a host awake once it's up — an EXTERNAL uptime
+// monitor (UptimeRobot / cron-job.org) hitting /api/health is more reliable for
+// cold starts, so set one of those up too.
+const selfUrl = process.env.SELF_PING_URL || process.env.RENDER_EXTERNAL_URL;
+if (selfUrl) {
+  const target = `${selfUrl.replace(/\/+$/, '')}/api/health`;
+  cron.schedule('*/10 * * * *', async () => {
+    try { await fetch(target, { signal: AbortSignal.timeout(8000) }); }
+    catch { /* best effort */ }
+  });
+  console.log('💓 Self keep-alive ping scheduled every 10 min →', target);
+}
+
+// Last line of defence: one bad promise or throw in a handler must not take the
+// whole server (and everyone on it) down. Log and keep serving other requests.
+process.on('unhandledRejection', (reason) => {
+  console.error('⚠️ Unhandled promise rejection (server kept alive):', reason);
+});
+process.on('uncaughtException', (err) => {
+  console.error('⚠️ Uncaught exception (server kept alive):', err);
 });
 
 app.listen(PORT, () => {

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import db from '../config/db.js';
+import { fetchHistoricalMetrics } from '../services/stockFundamentalsUpdater.js';
 
 const FINNHUB_KEY = process.env.FINNHUB_API_KEY || '';
 const FINNHUB_BASE = 'https://finnhub.io/api/v1';
@@ -233,29 +234,40 @@ export async function refreshFundamentals(symbol, force = false) {
       pe_ratio:               num(m.peNormalizedAnnual ?? m.peTTM ?? m.peExclExtraTTM),
       pb_ratio:               num(m.pbAnnual ?? m.pbQuarterly),
       ps_ratio:               num(m.psAnnual ?? m.psTTM),
-      ev_ebitda:              num(m['enterpriseValue/ebitdaTTM'] ?? m.currentEv_freeCashFlowAnnual),
-      peg_ratio:              num(m.pegRatioTTM),
-      dividend_yield:         pct(m.dividendYieldIndicatedAnnual),
+      ev_ebitda:              num(m.evEbitdaTTM ?? m.currentEvEbitdaTTM),
+      peg_ratio:              num(m.pegTTM ?? m.forwardPEG),
+      dividend_yield:         pct(m.dividendYieldIndicatedAnnual ?? m.currentDividendYieldTTM),
       eps:                    num(m.epsBasicExclExtraItemsAnnual ?? m.epsTTM),
       market_cap_millions:    num(m.marketCapitalization),
       roe:                    pct(m.roeTTM ?? m.roeRfy),
       roa:                    pct(m.roaTTM ?? m.roaRfy),
-      gross_margin:           pct(m.grossMarginTTM),
-      net_margin:             pct(m.netProfitMarginTTM),
-      debt_to_equity:         num(m.totalDebt_totalEquityAnnual),
+      gross_margin:           pct(m.grossMarginTTM ?? m.grossMarginAnnual),
+      net_margin:             pct(m.netProfitMarginTTM ?? m.netProfitMarginAnnual),
+      debt_to_equity:         num(m['totalDebt/totalEquityAnnual'] ?? m['totalDebt/totalEquityQuarterly']),
       current_ratio:          num(m.currentRatioAnnual ?? m.currentRatioQuarterly),
-      revenue_growth_yoy:     pct(m.revenueGrowthTTMYoy),
-      earnings_growth_yoy:    pct(m.epsGrowthTTMYoy),
+      revenue_growth_yoy:     pct(m.revenueGrowthTTMYoy ?? m.revenueGrowthQuarterlyYoy),
+      earnings_growth_yoy:    pct(m.epsGrowthTTMYoy ?? m.epsGrowthQuarterlyYoy),
       beta:                   num(m.beta),
-      volatility_1y:          pct(m['52WeekVolatility']),
       avg_daily_volume_millions: num(m['10DayAverageTradingVolume']),
+      // Finnhub returns (fallbacks; Yahoo-computed values below take precedence).
       return_1m:              pct(m.monthToDatePriceReturnDaily),
-      return_3m:              pct(m['3MonthAdjustedPriceReturnDaily']),
-      return_6m:              pct(m['6MonthPriceReturnDaily']),
+      return_3m:              pct(m['13WeekPriceReturnDaily']),
+      return_6m:              pct(m['26WeekPriceReturnDaily']),
       return_1y:              pct(m['52WeekPriceReturnDaily']),
       high_52w:               num(m['52WeekHigh']),
       low_52w:                num(m['52WeekLow']),
     };
+
+    // Finnhub's free tier has no volatility/drawdown and patchy returns. Compute
+    // the price-derived metrics from Yahoo history and overlay them (real numbers).
+    try {
+      const hist = await fetchHistoricalMetrics(symbol);
+      for (const [k, v] of Object.entries(hist)) {
+        if (v !== null && v !== undefined && Number.isFinite(v)) updates[k] = v;
+      }
+    } catch (e) {
+      console.warn('history metrics failed for', symbol, e.message);
+    }
 
     const setClauses = [];
     const values = [];

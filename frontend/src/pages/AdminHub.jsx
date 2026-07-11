@@ -154,8 +154,9 @@ export default function AdminHub() {
             <div className="min-w-0 flex-1">
               <h3 className="font-display text-xl font-bold">Daily market recap</h3>
               <p className="text-cream/70 text-sm leading-relaxed mt-1">
-                Auto-generates every day at 6:30am (Lagos) for SEO. Use this to publish today's
-                recap now — handy right after topping up AI credit, or any day you want it early.
+                Refreshes live US prices, then publishes today's recap to <span className="font-semibold">/insights</span>.
+                Takes a few seconds. Handy right after topping up AI credit, or any day you want it early.
+                A daily scheduler can also run this automatically.
               </p>
               {recapDone && (
                 <Link

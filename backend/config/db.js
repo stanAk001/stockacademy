@@ -15,18 +15,23 @@ const pool = new Pool({
     ? false
     : { rejectUnauthorized: false },
 
-  max: 20,
+  // Pool sizing is env-tunable so you can lift it with your DB plan. Keep it at
+  // or below your Postgres connection limit (Render's free tier is small).
+  max: Number(process.env.DB_POOL_MAX) || 20,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 15000, // generous: remote DBs (Render) over SSL can be slow to connect
+  connectionTimeoutMillis: 15000, // remote DBs (Render) over SSL can be slow to connect
+  keepAlive: true,                 // avoid idle-connection resets under load
+  statement_timeout: 20000,        // kill a runaway query instead of letting it hog a connection
 });
 
 pool.on('connect', () => {
   console.log('✅ Connected to PostgreSQL database');
 });
 
+// A dropped idle connection must NOT take the whole server down — that's how one
+// blip becomes an outage for every user. Log it; the pool replaces the client.
 pool.on('error', (err) => {
-  console.error('❌ Unexpected database error:', err);
-  process.exit(-1);
+  console.error('⚠️ Idle Postgres client error (recovering):', err.message);
 });
 
 export const query = (text, params) => pool.query(text, params);

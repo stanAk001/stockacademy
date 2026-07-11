@@ -138,6 +138,21 @@ export default function AdminStocks() {
           <p className="text-xs text-ink/55">Update prices daily, fundamentals quarterly.</p>
         </div>
 
+        {/* NGX AI reference-data refresh — no free live NGX feed exists */}
+        <div className="card-soft p-4 mb-5 bg-sun-100/60 border-l-4 border-sun-400">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="min-w-0">
+              <p className="font-bold text-sm">🤖 Fill NGX fundamentals with AI</p>
+              <p className="text-xs text-ink/60 max-w-xl">
+                No free live NGX feed exists, so this asks the AI for reference estimates (market cap, P/E,
+                dividend yield, 1-year return) computed against your real prices — it powers the Discover
+                rankings. Estimates only, so spot-check the big names and correct them below.
+              </p>
+            </div>
+            <RefreshNGXButton onDone={load} />
+          </div>
+        </div>
+
         {/* NGX data sources */}
         <div className="card-soft p-4 mb-5">
           <p className="text-xs font-bold uppercase tracking-wider text-ink/55 mb-2">Where to find NGX data</p>
@@ -235,6 +250,38 @@ function RefreshUSButton() {
       {loading
         ? <><Loader2 size={14} className="animate-spin"/> Refreshing… ~1 min</>
         : <><RefreshCw size={14}/> Refresh all US stocks now</>
+      }
+    </button>
+  );
+}
+
+function RefreshNGXButton({ onDone }) {
+  const [loading, setLoading] = useState(false);
+
+  const refresh = async () => {
+    if (!confirm('Fill NGX fundamentals with AI reference estimates? This uses your Anthropic credit and takes ~30 seconds.')) return;
+    setLoading(true);
+    try {
+      const { data } = await api.post('/admin/stocks/refresh-ngx');
+      if (data.success) {
+        toast.success(`Updated ${data.updated}/${data.total} NGX stocks`);
+        onDone?.();
+      } else {
+        toast.error(data.message || 'Refresh failed');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Refresh failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button onClick={refresh} disabled={loading}
+      className="btn-primary text-sm disabled:opacity-60 inline-flex items-center gap-1.5">
+      {loading
+        ? <><Loader2 size={14} className="animate-spin"/> Filling… ~30s</>
+        : <><RefreshCw size={14}/> Fill with AI</>
       }
     </button>
   );

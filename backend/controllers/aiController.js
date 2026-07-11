@@ -13,6 +13,7 @@ import axios from 'axios';
 import db from '../config/db.js';
 import { analyzeWithAI, parseJsonFromAI } from '../services/aiProvider.js';
 import { broadcastToPremium } from '../services/telegramService.js';
+import { refreshFundamentals } from './stockController.js';
 
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || '';
 
@@ -23,17 +24,27 @@ const DISCLAIMER =
 // Append a directive so Claude answers in the user's chosen language, and a
 // short code for the cache key (so each language caches separately).
 const LANG_NAME = { pcm: 'Nigerian Pidgin English', yo: 'Yorùbá', ha: 'Hausa', ig: 'Igbo' };
-function langDirective(lang) {
+export function langDirective(lang) {
+  if (lang === 'pcm') {
+    // Push for REAL Naija Pidgin, not anglicised English with a few pidgin words.
+    return ` IMPORTANT: Write your ENTIRE response in real, natural Nigerian Pidgin (Naija) — the way ` +
+      `people actually talk, NOT anglicised English with a few pidgin words sprinkled in. Use proper ` +
+      `Pidgin grammar and rhythm ("e dey", "don", "go", "wan", "make", "wetin", "sabi", "no be", ` +
+      `"e get", "abeg", "small small", "wahala", "gain / loss", "your money") wherever it fits ` +
+      `naturally. Keep stock tickers, company names and finance terms (P/E, ROE) recognisable, but ` +
+      `break down wetin dem mean for Pidgin. Sound like a sharp, warm Naija mentor wey dey teach ` +
+      `person wey wan learn.`;
+  }
   const name = LANG_NAME[lang];
   if (!name) return ''; // English / unknown → default, no change
-  return ` IMPORTANT: Write your ENTIRE response in ${name}. Keep stock tickers, company ` +
-    `names, and standard finance terms (e.g. P/E, ROE) recognisable, but explain everything ` +
-    `else in ${name}. Stay warm and beginner-friendly.`;
+  return ` IMPORTANT: Write your ENTIRE response in natural, everyday ${name} — the way a real ${name} ` +
+    `speaker talks, not stiff or over-formal. Keep stock tickers, company names, and standard finance ` +
+    `terms (e.g. P/E, ROE) recognisable, but explain everything else in ${name}. Stay warm and beginner-friendly.`;
 }
-const langKey = (lang) => (LANG_NAME[lang] ? lang : 'en');
+export const langKey = (lang) => (LANG_NAME[lang] ? lang : 'en');
 
 // ---------- cache + usage helpers ----------
-async function readCache(key) {
+export async function readCache(key) {
   const { rows } = await db.query(
     `SELECT response FROM ai_cache WHERE cache_key = $1 AND expires_at > NOW()`,
     [key]
@@ -41,7 +52,7 @@ async function readCache(key) {
   return rows[0]?.response || null;
 }
 
-async function writeCache(key, response, ttlHours) {
+export async function writeCache(key, response, ttlHours) {
   await db.query(
     `INSERT INTO ai_cache (cache_key, response, created_at, expires_at)
      VALUES ($1, $2, NOW(), NOW() + ($3 || ' hours')::interval)
@@ -51,7 +62,7 @@ async function writeCache(key, response, ttlHours) {
   );
 }
 
-async function logUsage(userId, feature, result) {
+export async function logUsage(userId, feature, result) {
   try {
     await db.query(
       `INSERT INTO ai_usage_log (user_id, feature, input_tokens, output_tokens, estimated_cost_usd)
@@ -168,32 +179,59 @@ export const compareStocks = async (req, res) => {
     }
 
     // Cache key: order-independent so AAPL:MSFT and MSFT:AAPL share a result.
-    const key = 'compare:' + [stockA.symbol, stockB.symbol].sort().join(':') + ':' + langKey(lang);
+    // ':v3' bump busts older answers cached before live-metrics + decision sections.
+    const key = 'compare:v3:' + [stockA.symbol, stockB.symbol].sort().join(':') + ':' + langKey(lang);
     const cached = await readCache(key);
     if (cached) return res.json({ success: true, cached: true, ...cached });
 
-    const dataA = compactStock(stockA);
-    const dataB = compactStock(stockB);
+    // Pull LIVE fundamentals first — same path the analysis/screener page uses.
+    // US tickers refresh from Finnhub (cached 24h in-DB); NGX/others fall back to
+    // the stored row. Whatever's still missing, the AI fills from company knowledge.
+    const [freshA, freshB] = await Promise.all([
+      refreshFundamentals(stockA.symbol).catch(() => null),
+      refreshFundamentals(stockB.symbol).catch(() => null),
+    ]);
+    const richA = freshA || stockA;
+    const richB = freshB || stockB;
+
+    const dataA = compactStock(richA);
+    const dataB = compactStock(richB);
 
     const system =
-      `You are a markets educator comparing two stocks for a learner. ` +
-      `You handle both US and Nigerian (NGX) stocks. Be objective and plain-spoken — ` +
-      `no hype, no "guaranteed", no buy/sell calls. Base everything ONLY on the data given; ` +
-      `if a field is null, say it's unavailable rather than guessing. ` +
-      `Compare fundamentals (revenue/margins/debt/growth), risk profile, and valuation. ` +
+      `You are a warm, expert markets mentor comparing two stocks for a beginner. You handle both US ` +
+      `and Nigerian (NGX) stocks. ` +
+      `Use the structured data provided as your first source. When specific fields are null or missing, ` +
+      `do NOT just say "unavailable" — draw on your well-established general knowledge of these companies ` +
+      `(their business model, scale, how they make money, typical profitability and growth profile, ` +
+      `competitive position and moat, and general risk character) to give a genuinely useful comparison. ` +
+      `Be honest about the source: when a point comes from general knowledge rather than the live data, ` +
+      `signal it lightly ("broadly", "historically", "as a rule") and prefer relative, qualitative ` +
+      `language ("higher-margin", "faster-growing", "more richly valued") or clearly-approximate ranges ` +
+      `over precise figures. Never present a made-up number as if it were a live, current figure. ` +
+      `Teach, don't dump: explain what each difference MEANS for a beginner in plain words, with a simple ` +
+      `analogy where it helps. No hype, no "guaranteed", no buy/sell calls, no price targets. ` +
       `Respond with ONLY valid JSON (no markdown fences) matching exactly this shape: ` +
-      `{"summary": string, "fundamentals_comparison": string, "risk_comparison": string, ` +
-      `"valuation_comparison": string, "which_for_what": string, "disclaimer": string}. ` +
+      `{"summary": string, "key_differences": string[], "fundamentals_comparison": string, ` +
+      `"risk_comparison": string, "valuation_comparison": string, "which_for_what": string, ` +
+      `"bottom_line": string, "disclaimer": string}. ` +
+      `Make every section substantive and specific to these two companies — never a bare "unavailable". ` +
+      `"key_differences" = 3-5 short, punchy head-to-head contrasts a beginner can scan in seconds ` +
+      `(e.g. "Amazon is diversified across retail + cloud; Meta lives almost entirely on ad revenue"). ` +
+      `"which_for_what" should guide which stock better suits an income investor, a growth seeker, and a ` +
+      `cautious beginner, and why. "bottom_line" = a clear decision framework that puts the LEARNER in ` +
+      `the driver's seat: spell out when each stock makes more sense, name the single question that ` +
+      `settles it for them, and remind them it's their call — do NOT tell them which one to buy. ` +
       `Always set "disclaimer" to: "${DISCLAIMER}".`;
 
     const user =
-      `Compare these two stocks.\n\n` +
+      `Compare these two stocks. Some numeric fields may be null when live data isn't on file — use ` +
+      `your knowledge to fill those gaps as instructed.\n\n` +
       `STOCK A:\n${JSON.stringify(dataA, null, 2)}\n\n` +
       `STOCK B:\n${JSON.stringify(dataB, null, 2)}`;
 
     let result;
     try {
-      result = await analyzeWithAI(system + langDirective(lang), user, { maxTokens: 2048, timeoutMs: 30000 });
+      result = await analyzeWithAI(system + langDirective(lang), user, { maxTokens: 2600, timeoutMs: 40000 });
     } catch (e) {
       if (e.code === 'AI_NOT_CONFIGURED') {
         return res.status(503).json({ success: false, message: 'AI features are not configured yet.' });
@@ -211,10 +249,14 @@ export const compareStocks = async (req, res) => {
       return res.status(502).json({ success: false, message: 'The AI returned an unexpected format. Please try again.' });
     }
     if (!analysis.disclaimer) analysis.disclaimer = DISCLAIMER;
+    if (!Array.isArray(analysis.key_differences)) analysis.key_differences = [];
 
     const payload = {
-      stock_a: { symbol: stockA.symbol, name: stockA.name },
-      stock_b: { symbol: stockB.symbol, name: stockB.name },
+      stock_a: { symbol: richA.symbol, name: richA.name, currency: richA.currency, last_price: num(richA.last_price) },
+      stock_b: { symbol: richB.symbol, name: richB.name, currency: richB.currency, last_price: num(richB.last_price) },
+      // The raw, factual numbers behind the AI's read — rendered as a side-by-side table.
+      metrics_a: dataA,
+      metrics_b: dataB,
       analysis,
       generated_at: new Date().toISOString(),
     };
@@ -239,14 +281,18 @@ export const compareStocks = async (req, res) => {
 export const explainStock = async (req, res) => {
   try {
     const lang = req.query?.language;
-    const stock = await findStock(req.params.symbol);
-    if (!stock) {
+    const found = await findStock(req.params.symbol);
+    if (!found) {
       return res.status(404).json({ success: false, message: 'Stock not found.' });
     }
+    // Pull LIVE fundamentals first (US → Finnhub, cached 24h in-DB) — the same path
+    // the analysis page uses, so the explanation reads current numbers, not a stale row.
+    const stock = (await refreshFundamentals(found.symbol).catch(() => null)) || found;
 
-    // 24h cache, busted when the stock's data is refreshed.
+    // 24h cache, busted when the stock's data is refreshed. 'v2' busts old
+    // answers that stalled with "not available" before the knowledge fallback.
     const stamp = stock.data_updated_at ? new Date(stock.data_updated_at).toISOString().slice(0, 13) : 'na';
-    const key = `explain:${stock.symbol}:${langKey(lang)}:${stamp}`;
+    const key = `explain:v2:${stock.symbol}:${langKey(lang)}:${stamp}`;
     const cached = await readCache(key);
     if (cached) return res.json({ success: true, cached: true, ...cached });
 
@@ -257,9 +303,13 @@ export const explainStock = async (req, res) => {
       `who has never invested before. You handle both US and Nigerian (NGX) stocks. ` +
       `Your job is NOT to dump numbers — it is to explain what the numbers MEAN in everyday words, ` +
       `using simple analogies a normal person understands (e.g. compare debt to a household loan). ` +
-      `No hype, no "guaranteed", no buy/sell calls. Base everything ONLY on the data given; if a ` +
-      `field is null, treat it as "not available" rather than guessing. When you mention a finance ` +
-      `term (P/E, ROE, margin, volatility) add a 4-6 word plain meaning in brackets the first time. ` +
+      `No hype, no "guaranteed", no buy/sell calls. Use the given numbers as your first source. When ` +
+      `fields are null or missing, don't stall — draw on your well-established general knowledge of ` +
+      `this company (what it does, how it makes money, its rough profitability, growth and risk ` +
+      `character) so the beginner still gets a real, useful picture. Signal general knowledge lightly ` +
+      `("broadly", "historically") and don't present a made-up number as if it were a live figure. ` +
+      `When you mention a finance term (P/E, ROE, margin, volatility) add a 4-6 word plain meaning in ` +
+      `brackets the first time. ` +
       `Respond with ONLY valid JSON (no markdown fences) matching exactly this shape: ` +
       `{"headline": string, "plain_english": string, "strengths": string[], "watch_outs": string[], ` +
       `"for_beginners": string, "disclaimer": string}. ` +
@@ -496,7 +546,7 @@ export const scanNews = async (req, res) => {
     const displaySym = stock?.display_symbol || symbol.replace(/^NGX:/, '');
     const companyName = stock?.name || displaySym;
 
-    const key = 'news:' + symbol + ':' + langKey(lang);
+    const key = 'news:v2:' + symbol + ':' + langKey(lang);
     const cached = await readCache(key);
     if (cached) return res.json({ success: true, cached: true, ...cached });
 
@@ -542,18 +592,21 @@ export const scanNews = async (req, res) => {
     }
 
     const system =
-      `You are a markets educator helping a beginner cut through news noise on a single stock. ` +
+      `You are a warm markets mentor helping a beginner cut through news noise on a single stock. ` +
       `You handle both US and Nigerian (NGX) stocks. Classify each item as MATERIAL — earnings/results, ` +
       `guidance, lawsuits or legal action, regulatory action, management changes, M&A, major contracts or ` +
       `products, dividends/capital actions — or NOISE — price/stock-move commentary, generic analyst ratings, ` +
       `listicles, social chatter, or items not really about this company. Use ONLY the items given; do not ` +
-      `invent events. Keep every "why_it_matters" to one plain-English sentence a beginner understands. ` +
+      `invent events. For each kept item, write "why_it_matters" as one plain sentence that TEACHES — what a ` +
+      `beginner should actually take away from that event, not just that it happened. ` +
       `Preserve each kept item's original date and url exactly. Be objective — no hype, no "guaranteed", ` +
       `no buy/sell calls. Respond with ONLY valid JSON (no markdown fences) in exactly this shape: ` +
       `{"summary": string, "material_events": [{"date": string, "headline": string, "why_it_matters": string, "url": string}], ` +
       `"noise_filtered_out": number, "risk_flags": string[], "disclaimer": string}. ` +
-      `"summary" is 1-2 sentences on the overall news flow. "risk_flags" lists any concerning patterns (e.g. ` +
-      `repeated legal trouble, leadership churn) or is empty. Always set "disclaimer" to: "${DISCLAIMER}".`;
+      `"summary" is 2-3 warm sentences telling the STORY the news flow shows a learner — is this a busy patch, ` +
+      `a quiet stretch, a company under pressure, or one riding momentum, and what that pattern means for ` +
+      `someone learning to read a stock. "risk_flags" lists any concerning patterns (e.g. repeated legal ` +
+      `trouble, leadership churn) or is empty. Always set "disclaimer" to: "${DISCLAIMER}".`;
 
     const user =
       `Stock: ${companyName} (${displaySym}). Here are ${items.length} news items from the last 30 days:\n` +
@@ -615,6 +668,27 @@ export const tutorChat = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Please keep your question short.' });
     }
 
+    // Free users get a real taste of the tutor, then a nudge to upgrade. We count
+    // only billed calls (ai_usage_log), so cached re-reads never burn a free slot.
+    const FREE_TUTOR_LIMIT = 2;
+    const isPremium = req.user?.plan === 'premium';
+    let freeUsed = 0;
+    if (!isPremium) {
+      const { rows } = await db.query(
+        `SELECT COUNT(*)::int AS n FROM ai_usage_log WHERE user_id = $1 AND feature = 'tutor'`,
+        [req.user.id]
+      );
+      freeUsed = rows[0].n;
+      if (freeUsed >= FREE_TUTOR_LIMIT) {
+        return res.status(402).json({
+          success: false,
+          upgrade: true,
+          message: "That's your 2 free tutor questions used up. Upgrade to Premium for unlimited tutoring — in English, Pidgin, Yorùbá, Hausa and Igbo — plus stock comparisons, news scans and more.",
+        });
+      }
+    }
+    const freeRemaining = isPremium ? null : Math.max(0, FREE_TUTOR_LIMIT - freeUsed);
+
     // Ground in the lesson content when we have it.
     let lesson = null;
     if (lessonId) {
@@ -629,7 +703,8 @@ export const tutorChat = async (req, res) => {
       // Flag cache hits so the rate limiter doesn't count them (no model call,
       // no token spend — re-reading the same answer shouldn't cost a quota slot).
       res.setHeader('X-AI-Cache', 'hit');
-      return res.json({ success: true, cached: true, ...cached });
+      // A cache hit isn't billed, so it doesn't consume a free slot.
+      return res.json({ success: true, cached: true, free_remaining: freeRemaining, ...cached });
     }
 
     const lessonContext = lesson
@@ -642,7 +717,10 @@ export const tutorChat = async (req, res) => {
       `it. Ground your answer in the lesson context below when relevant; if the question goes beyond it, answer ` +
       `briefly and tie it back to the fundamentals. You teach concepts only — never give financial advice or ` +
       `specific buy/sell/price-target calls, and never promise returns. If a question is off-topic (not about ` +
-      `investing, markets, or this lesson), gently steer back. Keep answers under ~180 words.\n\n` +
+      `investing, markets, or this lesson), gently steer back. Keep answers under ~180 words. ` +
+      `FORMATTING: write like a mentor talking, not a formatted document. Prefer short paragraphs. You may use ` +
+      `**bold** for a couple of key terms and a short bullet list when it genuinely helps, but do NOT stack ` +
+      `several markdown headings — at most one short heading, only if it truly clarifies.\n\n` +
       `=== LESSON CONTEXT ===\n${lessonContext}`;
 
     let result;
@@ -664,7 +742,9 @@ export const tutorChat = async (req, res) => {
     await logUsage(req.user.id, 'tutor', result);
     await writeCache(key, payload, 24);
 
-    res.json({ success: true, cached: false, ...payload });
+    // This billed call consumed one slot, so remaining drops by one for free users.
+    const remainingAfter = isPremium ? null : Math.max(0, freeRemaining - 1);
+    res.json({ success: true, cached: false, free_remaining: remainingAfter, ...payload });
   } catch (err) {
     console.error('tutorChat error:', err);
     res.status(500).json({ success: false, message: 'Tutor failed' });
