@@ -190,6 +190,39 @@ html, body {
   max-width: 100vw;
 }
 
+/* ============================================
+   OVERFLOW SAFETY NET
+   Grid children default to `min-width: auto`, so one long price, a wide card or
+   a chart canvas can refuse to shrink and push the page past the viewport. Since
+   html/body clip horizontal overflow, that content becomes UNREACHABLE on a
+   phone — you'd have to rotate to landscape to see it. Letting grid items shrink
+   fixes that everywhere at once.
+
+   `:where()` keeps specificity at 0, so any component can still override it.
+   Flex is deliberately NOT included: the ticker marquee and the horizontal
+   scrollers rely on flex children keeping their natural width.
+   ============================================ */
+:where(.grid) > * {
+  min-width: 0;
+}
+
+/* Long unbroken strings (emails, tickers, URLs) must wrap, not widen the page. */
+body {
+  overflow-wrap: break-word;
+}
+
+/* Media can never outgrow its container. Tables are excluded on purpose — they
+   live inside `overflow-x-auto` wrappers and are meant to scroll sideways. */
+img, svg, video, iframe {
+  max-width: 100%;
+}
+
+/* Code blocks scroll inside themselves rather than widening the page. */
+pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 /* Make all images responsive by default */
 img {
   max-width: 100%;

@@ -1,3 +1,4 @@
+
 -- ============================================
 -- StockAcademia — Admin moderation & analytics
 -- Run after migration_05_plan_upgrades.sql

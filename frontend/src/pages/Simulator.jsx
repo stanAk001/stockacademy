@@ -125,7 +125,7 @@ export default function Simulator() {
 
         {tab === 'chart' && (
           <div className="grid lg:grid-cols-3 gap-6">
-            <div className="card-soft p-5 lg:order-2 lg:col-span-1">
+            <div className="card-soft p-5 lg:order-2 lg:col-span-1 min-w-0">
               <p className="text-xs font-bold uppercase tracking-widest text-bull-600 mb-3">Market</p>
             <div className="relative mb-3">
                 <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-ink/40 pointer-events-none z-10" />
@@ -163,16 +163,16 @@ export default function Simulator() {
               </div>
             </div>
 
-            <div className="lg:col-span-2 space-y-5">
-              <div className="card-soft p-6">
+            <div className="lg:col-span-2 space-y-5 min-w-0">
+              <div className="card-soft p-4 sm:p-6 min-w-0">
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-xs font-mono text-ink/40">NASDAQ</p>
-                    <h2 className="font-display text-3xl font-black">{quote?.symbol}</h2>
-                    <p className="text-sm text-ink/60">{quote?.name}</p>
+                    <h2 className="font-display text-2xl sm:text-3xl font-black">{quote?.symbol}</h2>
+                    <p className="text-sm text-ink/60 truncate">{quote?.name}</p>
                   </div>
-                  <div className="text-right">
-                    <p className="font-display text-4xl font-black font-mono">
+                  <div className="text-right min-w-0">
+                    <p className="font-display text-3xl sm:text-4xl font-black font-mono">
                       ${quote?.price?.toFixed(2)}
                     </p>
                     <p className={`text-sm font-bold font-mono flex items-center justify-end gap-1 ${isUp ? 'text-bull-600' : 'text-bear-500'}`}>
@@ -190,7 +190,7 @@ export default function Simulator() {
                   const hl = hover && hover.open != null;
                   const money = (v) => (v == null ? '—' : `$${Number(v).toFixed(2)}`);
                   return (
-                    <div className="grid grid-cols-4 gap-3 mt-5 text-sm">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 text-sm">
                       <Metric label="Open" value={money(hl ? hover.open : quote?.open)} />
                       <Metric label="High" value={money(hl ? hover.high : quote?.high)} color="text-bull-600" />
                       <Metric label="Low" value={money(hl ? hover.low : quote?.low)} color="text-bear-500" />

@@ -71,6 +71,10 @@ export default function CandlestickChart({ symbol, height = 400, onHover }) {
       },
       rightPriceScale: { borderColor: '#0F141920', textColor: '#0F141980' },
       timeScale: { borderColor: '#0F141920', timeVisible: false, secondsVisible: false },
+      // autoSize keeps the canvas locked to its container. Without it the chart
+      // measures once and never shrinks on a phone (window.resize never fires),
+      // so it stays too wide and drags the whole page past the viewport.
+      autoSize: true,
       width: containerRef.current.clientWidth,
       height,
     });
@@ -116,9 +120,16 @@ export default function CandlestickChart({ symbol, height = 400, onHover }) {
       onHoverRef.current?.(r); // let the parent page mirror the hovered values
     });
 
-    const onResize = () => chart.applyOptions({ width: containerRef.current.clientWidth });
-    window.addEventListener('resize', onResize);
-    return () => { window.removeEventListener('resize', onResize); chart.remove(); };
+    // Track the container itself, not the window — on a phone the container can
+    // settle/shrink after mount without any window resize event.
+    const el = containerRef.current;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect?.width;
+      if (w > 0) chart.applyOptions({ width: Math.floor(w) });
+    });
+    ro.observe(el);
+
+    return () => { ro.disconnect(); chart.remove(); };
   }, [height]);
 
   // --- load data on symbol/range ---
@@ -181,7 +192,7 @@ export default function CandlestickChart({ symbol, height = 400, onHover }) {
   }, [chartType, showMA]);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 min-w-0">
       {/* Readout bar — the period story, or live hover values */}
       <div className="flex items-center justify-between gap-3 flex-wrap min-h-[34px]">
         {readout ? (
@@ -236,8 +247,8 @@ export default function CandlestickChart({ symbol, height = 400, onHover }) {
         </div>
       )}
 
-      <div className="relative">
-        <div ref={containerRef} className="w-full bg-cream rounded-xl border border-ink/5" />
+      <div className="relative min-w-0 overflow-hidden">
+        <div ref={containerRef} className="w-full min-w-0 bg-cream rounded-xl border border-ink/5" />
         {loading && (
           <div className="absolute inset-0 grid place-items-center bg-cream/60 rounded-xl">
             <Loader2 className="animate-spin text-ink/60" size={24} />

@@ -147,7 +147,7 @@ export default function StockDetail() {
         </div>
 
         {/* Chart — full timeframe set incl. intraday, line/candle toggle, hover readout */}
-        <div className="card-soft p-4 sm:p-6 mb-6">
+        <div className="card-soft p-4 sm:p-6 mb-6 min-w-0 overflow-hidden">
           <CandlestickChart symbol={quote.symbol} height={360} />
         </div>
 
