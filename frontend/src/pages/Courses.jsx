@@ -14,16 +14,40 @@ const categories = [
   { id: 'strategies', label: 'Strategies' },
 ];
 
+// Turn any failure into something a human can act on, instead of an empty list.
+function describeError(err) {
+  const status = err?.response?.status;
+  if (status === 401) return 'Your session has expired. Please sign in again.';
+  if (status === 404) return "That doesn't exist (404).";
+  if (status >= 500) return 'The server had a problem. Please try again in a moment.';
+  if (err?.response?.data?.message) return err.response.data.message;
+  // No response at all = network/CORS/wrong API URL.
+  return "Couldn't reach the server. Check your connection and try again.";
+}
+
 export default function Courses() {
   const [courses, setCourses] = useState([]);
   const [filter, setFilter] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
     api.get('/courses')
-      .then(({ data }) => data.success && setCourses(data.courses))
-      .finally(() => setLoading(false));
-  }, []);
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (data.success) setCourses(data.courses);
+        else setError(data.message || 'Could not load courses.');
+      })
+      // Without this, a 401/500/network error silently rendered an empty list
+      // that looked like "there are no courses".
+      .catch((err) => { if (!cancelled) setError(describeError(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [reloadKey]);
 
   const filtered = filter === 'all' ? courses : courses.filter((c) => c.category === filter);
 
@@ -58,6 +82,18 @@ export default function Courses() {
             {[...Array(6)].map((_, i) => (
               <div key={i} className="card-soft p-6 h-64 animate-pulse bg-ink/5" />
             ))}
+          </div>
+        ) : error ? (
+          <div className="card-soft p-10 text-center">
+            <p className="font-display text-lg font-bold mb-1">Couldn't load the courses</p>
+            <p className="text-sm text-ink/60 mb-5">{error}</p>
+            <button onClick={() => setReloadKey((k) => k + 1)} className="btn-primary text-sm">
+              Try again
+            </button>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="card-soft p-10 text-center text-ink/55">
+            No courses in this category yet.
           </div>
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">

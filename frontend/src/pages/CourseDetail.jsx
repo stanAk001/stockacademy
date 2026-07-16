@@ -5,22 +5,45 @@ import { ArrowLeft, CheckCircle2, Circle, Clock, Zap } from 'lucide-react';
 import Layout from '../components/Layout';
 import api from '../services/api';
 
+// Turn any failure into something a human can act on, instead of "not found".
+function describeError(err) {
+  const status = err?.response?.status;
+  if (status === 401) return 'Your session has expired. Please sign in again.';
+  if (status === 404) return "This course doesn't exist. It may have been renamed.";
+  if (status >= 500) return 'The server had a problem loading this course. Please try again.';
+  if (err?.response?.data?.message) return err.response.data.message;
+  // No response at all = network/CORS/wrong API URL.
+  return "Couldn't reach the server. Check your connection and try again.";
+}
+
 export default function CourseDetail() {
   const { slug } = useParams();
   const [course, setCourse] = useState(null);
   const [lessons, setLessons] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
-    api.get(`/courses/${slug}`)
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+    api.get(`/courses/${encodeURIComponent(slug)}`)
       .then(({ data }) => {
+        if (cancelled) return;
         if (data.success) {
           setCourse(data.course);
           setLessons(data.lessons);
+        } else {
+          setError(data.message || 'Could not load this course.');
         }
       })
-      .finally(() => setLoading(false));
-  }, [slug]);
+      // Without this, a 401/500/network error fell through to "Course not found",
+      // which pointed at missing data when the real cause was the request failing.
+      .catch((err) => { if (!cancelled) setError(describeError(err)); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [slug, reloadKey]);
 
   if (loading) {
     return (
@@ -36,7 +59,22 @@ export default function CourseDetail() {
     );
   }
 
-  if (!course) return <Layout><div className="p-20 text-center">Course not found.</div></Layout>;
+  if (!course) {
+    return (
+      <Layout>
+        <div className="max-w-md mx-auto px-4 py-20 text-center">
+          <p className="font-display text-xl font-black mb-1">Couldn't open this course</p>
+          <p className="text-sm text-ink/60 mb-6">{error || 'Course not found.'}</p>
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button onClick={() => setReloadKey((k) => k + 1)} className="btn-primary text-sm">
+              Try again
+            </button>
+            <Link to="/courses" className="btn-ghost text-sm">All courses</Link>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   const completedCount = lessons.filter((l) => l.completed).length;
   const progress = lessons.length ? Math.round((completedCount / lessons.length) * 100) : 0;
