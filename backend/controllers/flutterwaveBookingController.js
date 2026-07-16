@@ -8,6 +8,7 @@ const FLW_WEBHOOK_HASH = process.env.FLUTTERWAVE_WEBHOOK_HASH || '';
 const FLW_BASE = 'https://api.flutterwave.com/v3';
 // Single canonical URL — never a comma list (see config/appUrl.js).
 import { CANONICAL_URL as CLIENT_URL } from '../config/appUrl.js';
+import { isPaid, isSettling, respondPending } from '../utils/paymentStatus.js';
 
 const genRef = () => 'FLB_' + crypto.randomBytes(10).toString('hex').toUpperCase();
 
@@ -180,12 +181,16 @@ export const verifyBookingInternational = async (req, res) => {
       { headers: { Authorization: `Bearer ${FLW_SECRET}` } }
     );
     const tx = data?.data;
-    if (!tx || tx.status !== 'successful') {
+    // Still settling → leave the booking alone and let the client poll. Cancelling
+    // here would kill a booking whose money is still on its way.
+    if (isSettling(tx?.status)) return respondPending(res, tx.status);
+
+    if (!isPaid(tx?.status)) {
       await db.query(
         `UPDATE bookings SET payment_status='failed', status='cancelled' WHERE reference=$1`,
         [reference]
       );
-      return res.status(400).json({ success: false, message: 'Payment was not successful.' });
+      return res.status(400).json({ success: false, failed: true, message: 'Payment was not successful.' });
     }
 
     const expectedAmount = booking.amount_kobo / 100;
@@ -237,7 +242,9 @@ export const flutterwaveBookingWebhook = async (req, res) => {
   }
 };
 
-async function confirmBookingViaFlutterwave(bookingId, reference, flwTxId) {
+// Exported so the single Flutterwave webhook router can reuse the exact same
+// confirm path (one webhook URL per account — see flutterwaveWebhookController).
+export async function confirmBookingViaFlutterwave(bookingId, reference, flwTxId) {
   const client = await db.getClient();
   try {
     await client.query('BEGIN');

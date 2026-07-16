@@ -1,5 +1,12 @@
 import 'dotenv/config';
+import dns from 'node:dns';
 import express from 'express';
+
+// Node 18+ resolves DNS "verbatim", which can try IPv6 first. Where IPv6 is
+// broken or the resolver is flaky (common on home ISPs), that surfaces as
+// intermittent EAI_AGAIN against the database host. Preferring IPv4 makes
+// lookups deterministic. Harmless everywhere else.
+dns.setDefaultResultOrder('ipv4first');
 import cors from 'cors';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';

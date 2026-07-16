@@ -8,6 +8,7 @@ const FLW_WEBHOOK_HASH = process.env.FLUTTERWAVE_WEBHOOK_HASH || '';
 const FLW_BASE = 'https://api.flutterwave.com/v3';
 // Single canonical URL — never a comma list (see config/appUrl.js).
 import { CANONICAL_URL as CLIENT_URL } from '../config/appUrl.js';
+import { isPaid, isSettling, respondPending } from '../utils/paymentStatus.js';
 
 const PREMIUM_USD = (parseInt(process.env.PRICING_USD_CENTS) || 1000) / 100;
 
@@ -127,9 +128,12 @@ export const verifyUpgradeInternational = async (req, res) => {
       { headers: { Authorization: `Bearer ${FLW_SECRET}` } }
     );
     const tx = data?.data;
-    if (!tx || tx.status !== 'successful') {
+    // Still settling → don't mark it failed; let the client poll.
+    if (isSettling(tx?.status)) return respondPending(res, tx.status);
+
+    if (!isPaid(tx?.status)) {
       await db.query(`UPDATE plan_upgrades SET status='failed' WHERE reference=$1`, [reference]);
-      return res.status(400).json({ success: false, message: 'Payment was not successful.' });
+      return res.status(400).json({ success: false, failed: true, message: 'Payment was not successful.' });
     }
 
     const expectedAmount = upgrade.amount_kobo / 100;
@@ -203,7 +207,9 @@ export const flutterwaveWebhook = async (req, res) => {
   }
 };
 
-async function activatePremiumViaFlutterwave(userId, reference, flwTxId) {
+// Exported so the single Flutterwave webhook router can reuse the exact same
+// grant path (one webhook URL per account — see flutterwaveWebhookController).
+export async function activatePremiumViaFlutterwave(userId, reference, flwTxId) {
   const expires = new Date();
   expires.setMonth(expires.getMonth() + 1);
 

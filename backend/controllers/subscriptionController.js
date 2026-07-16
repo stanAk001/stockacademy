@@ -29,6 +29,9 @@ const PAYSTACK_WEBHOOK_SECRET = process.env.PAYSTACK_WEBHOOK_SECRET || PAYSTACK_
 const PAYSTACK_BASE = 'https://api.paystack.co';
 // Single canonical URL — never a comma list (see config/appUrl.js).
 import { CANONICAL_URL as CLIENT_URL } from '../config/appUrl.js';
+import { isPaid, isSettling, respondPending } from '../utils/paymentStatus.js';
+import { grantCertificateForReference } from './certificateController.js';
+import { grantBookingForReference } from './bookingController.js';
 
 // Amounts are in the smallest unit (kobo for NGN, cents for USD).
 const PRICES = {
@@ -229,8 +232,14 @@ export const verifySubscription = async (req, res) => {
       { headers: { Authorization: `Bearer ${PAYSTACK_SECRET}` } }
     );
     const p = data?.data;
-    if (!p || p.status !== 'success') {
-      return res.status(400).json({ success: false, message: 'Payment was not successful.' });
+    if (!p) {
+      return res.status(400).json({ success: false, failed: true, message: 'Payment reference not found.' });
+    }
+
+    // Transfers/USSD settle asynchronously — pending is NOT a failure.
+    if (isSettling(p.status)) return respondPending(res, p.status);
+    if (!isPaid(p.status)) {
+      return res.status(400).json({ success: false, failed: true, status: p.status, message: 'Payment was not successful.' });
     }
 
     const interval = p?.metadata?.interval === 'annual' ? 'annual' : 'monthly';
@@ -424,8 +433,26 @@ export const paystackWebhook = async (req, res) => {
     const data = event?.data || {};
     const reference = data?.reference;
 
+    // Paystack allows ONE webhook URL per account, so this endpoint is the router
+    // for every product we sell. Dispatch on the reference prefix.
+    const ref = String(reference || '');
+
+    // Certificates (CERT-…): issue even if the buyer closed the tab mid-transfer.
+    if (event?.event === 'charge.success' && ref.startsWith('CERT-')) {
+      const userId = data?.metadata?.user_id || null;
+      await recordEvent(userId, 'charge.success', event);
+      const result = await grantCertificateForReference({
+        reference: ref,
+        amount: (data?.amount || 0) / 100, // kobo → naira
+        userId,
+        email: data?.customer?.email,
+      });
+      if (!result.ok) console.warn('cert webhook could not issue:', ref, result.reason);
+      return res.sendStatus(200);
+    }
+
     // Only our premium purchases.
-    if (event?.event === 'charge.success' && String(reference || '').startsWith('SUB_')) {
+    if (event?.event === 'charge.success' && ref.startsWith('SUB_')) {
       const interval = data?.metadata?.interval === 'annual' ? 'annual' : 'monthly';
       let userId = data?.metadata?.user_id || null;
       if (!userId && data?.customer?.email) {
@@ -441,6 +468,15 @@ export const paystackWebhook = async (req, res) => {
           const uRes = await db.query('SELECT id, username, email, full_name FROM users WHERE id = $1', [userId]);
           if (uRes.rows[0]) notifyNewPremium(uRes.rows[0], data?.amount || 0, data?.currency || 'NGN', 'paystack').catch(() => {});
         }
+      }
+    } else if (event?.event === 'charge.success') {
+      // Not premium, not a certificate → it may be a mentorship booking. The
+      // bookings table decides (no prefix guessing); anything else just gets
+      // recorded for the audit trail.
+      await recordEvent(data?.metadata?.user_id || null, event.event, event);
+      const booked = await grantBookingForReference(data);
+      if (!booked.ok && booked.reason !== 'not_a_booking') {
+        console.warn('booking webhook could not confirm:', ref, booked.reason);
       }
     } else {
       await recordEvent(data?.metadata?.user_id || null, event?.event || 'unknown', event);

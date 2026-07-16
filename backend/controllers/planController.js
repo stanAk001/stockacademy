@@ -7,6 +7,7 @@ const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_BASE = 'https://api.paystack.co';
 // Single canonical URL — never a comma list (see config/appUrl.js).
 import { CANONICAL_URL as CLIENT_URL } from '../config/appUrl.js';
+import { isPaid, isSettling, respondPending } from '../utils/paymentStatus.js';
 
 // Premium plan price in NGN kobo (4500 NGN = 450000 kobo)
 const PREMIUM_PRICE_KOBO = parseInt(process.env.PREMIUM_PRICE_KOBO) || 450000;
@@ -130,9 +131,12 @@ export const verifyUpgrade = async (req, res) => {
         { headers: { Authorization: `Bearer ${PAYSTACK_SECRET}` } }
       );
       const p = data?.data;
-      if (!p || p.status !== 'success') {
+      // Still settling → don't bury it as failed; let the client keep polling.
+      if (isSettling(p?.status)) return respondPending(res, p.status);
+
+      if (!isPaid(p?.status)) {
         await db.query(`UPDATE plan_upgrades SET status='failed' WHERE reference=$1`, [reference]);
-        return res.status(400).json({ success: false, message: 'Payment was not successful.' });
+        return res.status(400).json({ success: false, failed: true, message: 'Payment was not successful.' });
       }
       if (p.amount !== upgrade.amount_kobo || p.currency !== upgrade.currency) {
         return res.status(400).json({ success: false, message: 'Payment amount mismatch.' });

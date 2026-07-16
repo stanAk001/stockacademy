@@ -8,6 +8,7 @@ const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_BASE = 'https://api.paystack.co';
 // Single canonical URL — never a comma list (see config/appUrl.js).
 import { CANONICAL_URL as CLIENT_URL } from '../config/appUrl.js';
+import { isPaid, isSettling, respondPending } from '../utils/paymentStatus.js';
 
 const genReference = () => 'BK_' + crypto.randomBytes(10).toString('hex').toUpperCase();
 
@@ -203,9 +204,13 @@ export const verifyPayment = async (req, res) => {
         { headers: { Authorization: `Bearer ${PAYSTACK_SECRET}` } }
       );
       const p = data?.data;
-      if (!p || p.status !== 'success') {
+      // Still settling (transfer/USSD) → keep the booking pending and let the
+      // client poll. Writing 'failed' here would bury a payment that's on its way.
+      if (isSettling(p?.status)) return respondPending(res, p.status);
+
+      if (!isPaid(p?.status)) {
         await db.query(`UPDATE bookings SET payment_status='failed', updated_at=NOW() WHERE reference=$1`, [reference]);
-        return res.status(400).json({ success: false, message: 'Payment not successful' });
+        return res.status(400).json({ success: false, failed: true, message: 'Payment not successful' });
       }
       if (p.amount !== booking.amount_kobo || p.currency !== booking.currency) {
         return res.status(400).json({ success: false, message: 'Payment amount mismatch' });
@@ -252,32 +257,49 @@ export const verifyPayment = async (req, res) => {
   }
 };
 
+/* ============================================================
+ *  Webhook grant — confirm a booking even if the payer closed the tab.
+ *
+ *  Paystack allows ONE webhook URL per account, so the shared handler in
+ *  subscriptionController routes charge.success events here. Safe to call for
+ *  any reference: a non-booking reference simply reports 'not_a_booking'.
+ *  Idempotent — an already-paid booking is left alone.
+ * ============================================================ */
+export async function grantBookingForReference(data) {
+  const ref = data?.reference;
+  if (!ref) return { ok: false, reason: 'no_reference' };
+
+  const { rows } = await db.query('SELECT * FROM bookings WHERE reference = $1', [ref]);
+  const booking = rows[0];
+  if (!booking) return { ok: false, reason: 'not_a_booking' };
+  if (booking.payment_status === 'paid') return { ok: true, already: true };
+
+  // Never trust the amount from the wire — it must match what we charged.
+  if (booking.amount_kobo !== data.amount || booking.currency !== data.currency) {
+    return { ok: false, reason: 'amount_mismatch' };
+  }
+
+  await db.query(
+    `UPDATE bookings SET payment_status='paid', status='confirmed', paid_at=NOW(),
+       payment_reference=$1, updated_at=NOW() WHERE reference=$2`,
+    [ref, ref]
+  );
+
+  const updatedB = await db.query('SELECT * FROM bookings WHERE reference = $1', [ref]);
+  const stRes = await db.query('SELECT name FROM session_types WHERE id = $1', [booking.session_type_id]);
+  notifyNewBooking(updatedB.rows[0], stRes.rows[0]?.name || 'Mentorship Session').catch(() => {});
+  return { ok: true, booking: updatedB.rows[0] };
+}
+
+// Kept for back-compat if a Paystack URL is ever pointed straight here.
 export const paystackWebhook = async (req, res) => {
   try {
     if (!PAYSTACK_SECRET) return res.sendStatus(200);
     const hash = crypto.createHmac('sha512', PAYSTACK_SECRET).update(JSON.stringify(req.body)).digest('hex');
     if (hash !== req.headers['x-paystack-signature']) return res.status(401).send('invalid signature');
 
-    const event = req.body;
-    if (event?.event === 'charge.success') {
-      const ref = event.data.reference;
-      const { rows } = await db.query('SELECT * FROM bookings WHERE reference = $1', [ref]);
-      const booking = rows[0];
-      if (booking && booking.payment_status !== 'paid'
-          && booking.amount_kobo === event.data.amount
-          && booking.currency === event.data.currency) {
-        await db.query(
-          `UPDATE bookings SET payment_status='paid', status='confirmed', paid_at=NOW(),
-             payment_reference=$1, updated_at=NOW() WHERE reference=$2`,
-          [ref, ref]
-        );
-
-        // Telegram notification — fire and forget (webhook fallback)
-        const updatedB = await db.query('SELECT * FROM bookings WHERE reference = $1', [ref]);
-        const stRes = await db.query('SELECT name FROM session_types WHERE id = $1', [booking.session_type_id]);
-        const sessionTypeName = stRes.rows[0]?.name || 'Mentorship Session';
-        notifyNewBooking(updatedB.rows[0], sessionTypeName).catch(() => {});
-      }
+    if (req.body?.event === 'charge.success') {
+      await grantBookingForReference(req.body.data);
     }
     res.sendStatus(200);
   } catch (err) {

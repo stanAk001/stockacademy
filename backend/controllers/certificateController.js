@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { CANONICAL_URL, appUrl } from '../config/appUrl.js';
+import { isPaid, isSettling, respondPending } from '../utils/paymentStatus.js';
 import PDFDocument from 'pdfkit';
 import crypto from 'crypto';
 import axios from 'axios';
@@ -219,8 +220,10 @@ export const verifyPayment = async (req, res) => {
         { headers: { Authorization: `Bearer ${FLW_SECRET}` } }
       );
       const tx = data?.data;
-      if (!tx || tx.status !== 'successful') {
-        return res.status(400).json({ success: false, message: 'Payment not successful' });
+      // Still settling → tell the client to keep waiting, don't call it a failure.
+      if (isSettling(tx?.status)) return respondPending(res, tx.status);
+      if (!isPaid(tx?.status)) {
+        return res.status(400).json({ success: false, failed: true, message: 'Payment not successful' });
       }
       // Guard against tampering: must match the price + currency we set.
       if (parseFloat(tx.amount) !== CERT_PRICE_USD_CENTS / 100 || tx.currency !== 'USD') {
@@ -232,10 +235,12 @@ export const verifyPayment = async (req, res) => {
         `https://api.paystack.co/transaction/verify/${reference}`,
         { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } }
       );
-      if (data.data.status !== 'success') {
-        return res.status(400).json({ success: false, message: 'Payment not successful' });
+      const tx = data?.data;
+      if (isSettling(tx?.status)) return respondPending(res, tx.status);
+      if (!isPaid(tx?.status)) {
+        return res.status(400).json({ success: false, failed: true, message: 'Payment not successful' });
       }
-      amount = data.data.amount / 100;
+      amount = tx.amount / 100;
     }
 
     const userRes = await db.query('SELECT full_name_legal FROM users WHERE id = $1', [userId]);
@@ -248,6 +253,36 @@ export const verifyPayment = async (req, res) => {
     res.status(500).json({ success: false, message: 'Verification failed' });
   }
 };
+
+/* ============================================================
+ *  Webhook grant — issue the certificate even if the buyer closed the tab.
+ *
+ *  Paystack allows ONE webhook URL per account, so the shared handler in
+ *  subscriptionController routes CERT- references here. Idempotent on
+ *  payment_reference, so the webhook and /verify can't double-issue.
+ * ============================================================ */
+export async function grantCertificateForReference({ reference, amount, userId, email }) {
+  if (!reference) return { ok: false, reason: 'no_reference' };
+
+  const existing = await db.query('SELECT id FROM certificates WHERE payment_reference = $1', [reference]);
+  if (existing.rows.length) return { ok: true, already: true };
+
+  let uid = userId || null;
+  if (!uid && email) {
+    const { rows } = await db.query('SELECT id FROM users WHERE email = $1 LIMIT 1', [email]);
+    uid = rows[0]?.id || null;
+  }
+  if (!uid) return { ok: false, reason: 'no_user' };
+
+  const u = await db.query('SELECT full_name_legal FROM users WHERE id = $1', [uid]);
+  const fullName = u.rows[0]?.full_name_legal;
+  // The legal name is captured before checkout; without it we can't print a
+  // certificate. Leave it for /verify rather than issuing a nameless one.
+  if (!fullName) return { ok: false, reason: 'no_legal_name' };
+
+  const certificate = await issueCertificate(uid, fullName, reference, amount, false);
+  return { ok: true, certificate };
+}
 
 // Helper: actually create the certificate
 async function issueCertificate(userId, fullName, paymentRef, amount, wasFree) {

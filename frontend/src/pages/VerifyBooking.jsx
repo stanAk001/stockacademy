@@ -1,49 +1,51 @@
-import { useEffect, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { CheckCircle2, XCircle, Loader2, Calendar, Clock, Video, ArrowRight } from 'lucide-react';
-import toast from 'react-hot-toast';
 import Layout from '../components/Layout';
-import api from '../services/api';
+import usePaymentVerify from '../hooks/usePaymentVerify';
 
 export default function VerifyBooking() {
   const [params] = useSearchParams();
   const reference = params.get('reference');
-  const demo = params.get('demo') === '1';
-
-  const [state, setState] = useState('loading'); // loading | success | failed
-  const [booking, setBooking] = useState(null);
-
-useEffect(() => {
-  if (!reference) { setState('failed'); return; }
   const processor = params.get('processor') || 'paystack';
-  const endpoint = processor === 'flutterwave'
-    ? '/bookings/verify-international'
-    : '/bookings/verify';
+  const endpoint = processor === 'flutterwave' ? '/bookings/verify-international' : '/bookings/verify';
 
-  api.post(endpoint, { reference })
-    .then(({ data }) => {
-      if (data.success && data.booking) {
-        setBooking(data.booking);
-        setState('success');
-      } else {
-        setState('failed');
-      }
-    })
-    .catch((err) => {
-      setState('failed');
-      toast.error(err.response?.data?.message || 'Verification failed');
-    });
-}, [reference, params]);
+  // Polls until the server confirms — transfers/USSD settle after the redirect.
+  const { state, data, error, waited, retry } = usePaymentVerify(endpoint, reference);
+  const booking = data?.booking;
 
   return (
     <Layout>
       <div className="max-w-xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        {state === 'loading' && (
+        {(state === 'loading' || state === 'confirming') && (
           <div className="card-soft p-10 text-center">
             <Loader2 className="animate-spin mx-auto mb-4 text-ink/60" size={40} />
-            <h1 className="font-display text-2xl font-bold">Verifying payment…</h1>
-            <p className="text-ink/60 text-sm mt-1">Hold tight, this usually takes a second.</p>
+            <h1 className="font-display text-2xl font-bold">Confirming your payment…</h1>
+            <p className="text-ink/60 text-sm mt-1 max-w-sm mx-auto">
+              {state === 'confirming'
+                ? "Bank transfers take a moment to land. Keep this page open, it'll continue on its own."
+                : 'Hold tight, this usually takes a second.'}
+            </p>
+            {waited > 8 && <p className="text-[11px] text-ink/40 mt-3 font-mono">Still checking… {waited}s</p>}
+            <p className="text-[11px] text-ink/40 mt-4">Don't refresh or close this tab.</p>
+          </div>
+        )}
+
+        {state === 'slow' && (
+          <div className="card-soft p-10 text-center">
+            <div className="w-16 h-16 mx-auto bg-sun-100 text-sun-600 rounded-full grid place-items-center mb-4">
+              <Loader2 size={28} />
+            </div>
+            <h1 className="font-display text-2xl font-black mb-2">Your bank is taking its time</h1>
+            <p className="text-ink/60 mb-4 max-w-md mx-auto text-sm leading-relaxed">
+              We haven't had confirmation yet. <strong className="text-ink">If the money left your account, nothing is lost</strong> —
+              your booking confirms automatically once the payment lands.
+            </p>
+            {reference && <p className="text-xs text-ink/45 mb-5 font-mono">Ref: {reference}</p>}
+            <div className="flex flex-wrap justify-center gap-3">
+              <button onClick={retry} className="btn-primary text-sm">Check again</button>
+              <Link to="/my-bookings" className="btn-ghost text-sm">My bookings</Link>
+            </div>
           </div>
         )}
 
@@ -90,9 +92,12 @@ useEffect(() => {
               <XCircle size={40} />
             </div>
             <h1 className="font-display text-2xl font-black mb-2">Payment not confirmed</h1>
-            <p className="text-ink/60 mb-6">We couldn't confirm your payment. If money was taken, please contact support with your reference.</p>
+            <p className="text-ink/60 mb-6">{error || "We couldn't confirm your payment. If money was taken, please contact support with your reference."}</p>
             {reference && <p className="text-xs text-ink/50 mb-4">Reference: <code>{reference}</code></p>}
-            <Link to="/book-session" className="btn-primary">Try again</Link>
+            <div className="flex flex-wrap justify-center gap-3">
+              <button onClick={retry} className="btn-ghost text-sm">Check again</button>
+              <Link to="/book-session" className="btn-primary">Try again</Link>
+            </div>
           </div>
         )}
       </div>
