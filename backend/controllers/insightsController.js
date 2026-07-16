@@ -9,6 +9,7 @@
 // "Start learning free" CTA, so search traffic funnels into signups.
 // ============================================================
 import db from '../config/db.js';
+import { CANONICAL_URL } from '../config/appUrl.js';
 import { analyzeWithAI, parseJsonFromAI } from '../services/aiProvider.js';
 import { refreshUsSnapshots } from '../services/marketSnapshot.js';
 
@@ -196,7 +197,7 @@ export const cronDailyRecap = async (req, res) => {
 /* ============================================================
  *  SERVER-RENDERED HTML (crawlable) — the actual SEO surface
  * ============================================================ */
-const APP_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+const APP_URL = CANONICAL_URL;
 const baseUrl = (req) => `${req.protocol}://${req.get('host')}`;
 
 function htmlShell({ title, description, canonical, jsonLd, body }) {

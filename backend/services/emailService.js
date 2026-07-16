@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
+import { appUrl } from '../config/appUrl.js';
 
-const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, CLIENT_URL } = process.env;
+const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM } = process.env;
 const PORT = Number(SMTP_PORT) || 587;
 
 export const isEmailConfigured = () => Boolean(SMTP_HOST && SMTP_USER && SMTP_PASS);
@@ -57,7 +58,7 @@ export async function sendEmail({ to, subject, html, text, footer }) {
 
 // Used by the price-alert engine for users who haven't linked Telegram.
 export function priceAlertEmail({ label, verb, sym, price, target, direction, note }) {
-  const url = `${CLIENT_URL || ''}/alerts`;
+  const url = appUrl('/alerts');
   return {
     subject: `🎯 ${label} hit your price target`,
     text: `${label} ${verb} ${sym}${price}. Your target was ${direction} ${sym}${target}.`,

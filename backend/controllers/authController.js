@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import validator from 'validator';
 import { OAuth2Client } from 'google-auth-library';
 import db from '../config/db.js';
+import { appUrl } from '../config/appUrl.js';
 import { generateToken } from '../utils/jwt.js';
 import { notifyNewSignup } from '../services/telegramService.js';
 import { sendEmail, isEmailConfigured, passwordResetEmail } from '../services/emailService.js';
@@ -310,7 +311,7 @@ export const requestPasswordReset = async (req, res) => {
       [user.id, tokenHash, expiresAt]
     );
 
-    const url = `${process.env.CLIENT_URL || ''}/reset-password?token=${raw}`;
+    const url = appUrl(`/reset-password?token=${raw}`);
     const firstName = (user.full_name || user.username || '').split(' ')[0];
     await sendEmail({ to: user.email, ...passwordResetEmail({ name: firstName, url, ttlMin: RESET_TTL_MIN }) });
 

@@ -5,7 +5,8 @@ import { notifyNewPremium } from '../services/telegramService.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_BASE = 'https://api.paystack.co';
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+// Single canonical URL — never a comma list (see config/appUrl.js).
+import { CANONICAL_URL as CLIENT_URL } from '../config/appUrl.js';
 
 // Premium plan price in NGN kobo (4500 NGN = 450000 kobo)
 const PREMIUM_PRICE_KOBO = parseInt(process.env.PREMIUM_PRICE_KOBO) || 450000;

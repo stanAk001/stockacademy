@@ -6,7 +6,8 @@ import { notifyNewBooking } from '../services/telegramService.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_BASE = 'https://api.paystack.co';
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+// Single canonical URL — never a comma list (see config/appUrl.js).
+import { CANONICAL_URL as CLIENT_URL } from '../config/appUrl.js';
 
 const genReference = () => 'BK_' + crypto.randomBytes(10).toString('hex').toUpperCase();
 

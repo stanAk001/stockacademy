@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { CANONICAL_URL, appUrl } from '../config/appUrl.js';
 import PDFDocument from 'pdfkit';
 import crypto from 'crypto';
 import axios from 'axios';
@@ -145,7 +146,7 @@ export const initialize = async (req, res) => {
           tx_ref: reference,
           amount: usdAmount,
           currency: 'USD',
-          redirect_url: `${process.env.CLIENT_URL}/certificate/verify?reference=${reference}&processor=flutterwave`,
+          redirect_url: appUrl(`/certificate/verify?reference=${reference}&processor=flutterwave`),
           customer: { email: user.email, name: user.full_name_legal },
           customizations: { title: 'StockAcademia Certificate', description: 'Course completion certificate' },
           meta: { purpose: 'certificate', user_id: userId },
@@ -159,7 +160,7 @@ export const initialize = async (req, res) => {
 
     // NIGERIAN USERS: ₦4,000 via Paystack
     const reference = `CERT-${Date.now()}-${userId}`;
-    const callbackUrl = `${process.env.CLIENT_URL}/certificate/verify?reference=${reference}&processor=paystack`;
+    const callbackUrl = appUrl(`/certificate/verify?reference=${reference}&processor=paystack`);
 
     const { data } = await axios.post(
       'https://api.paystack.co/transaction/initialize',
@@ -481,7 +482,8 @@ function generatePDF(cert, res) {
     .stroke('#0F1419');
 
   // Verification URL footer
-  const verifyUrl = `${(process.env.CLIENT_URL || 'https://stocklearning-phi.vercel.app').replace(/^https?:\/\//, '')}/verify/${cert.verification_token}`;
+  // Printed on the certificate — show a bare host (no scheme), never a comma list.
+  const verifyUrl = `${CANONICAL_URL.replace(/^https?:\/\//, '')}/verify/${cert.verification_token}`;
   doc
     .fillColor('#0F1419')
     .fillOpacity(0.5)

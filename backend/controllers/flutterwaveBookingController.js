@@ -6,7 +6,8 @@ import { notifyNewPremium } from '../services/telegramService.js';
 const FLW_SECRET = process.env.FLUTTERWAVE_SECRET_KEY || '';
 const FLW_WEBHOOK_HASH = process.env.FLUTTERWAVE_WEBHOOK_HASH || '';
 const FLW_BASE = 'https://api.flutterwave.com/v3';
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:5173';
+// Single canonical URL — never a comma list (see config/appUrl.js).
+import { CANONICAL_URL as CLIENT_URL } from '../config/appUrl.js';
 
 const genRef = () => 'FLB_' + crypto.randomBytes(10).toString('hex').toUpperCase();
 

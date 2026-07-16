@@ -52,12 +52,23 @@ app.use((req, res, next) => {
 });
 
 // Allow the deployed frontend(s) to call the API with credentials (cookies).
-// CLIENT_URL may be a comma-separated list (prod URL + Vercel preview URLs);
-// trailing slashes are stripped so a stray "/" in the env var can't block CORS.
-const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:5173')
-  .split(',')
+//
+// CLIENT_URL must be ONE canonical URL — it's also interpolated straight into
+// payment callback_url/redirect_url and password-reset links, so a comma-separated
+// value there would silently produce "https://a,https://b/upgrade/verify?..." and
+// break real payments. Extra browser origins (www, the old *.vercel.app, preview
+// deploys) belong in CORS_ORIGINS instead.
+//
+// Back-compat: CLIENT_URL is still split on commas, so an existing deploy that
+// already has a list keeps working for CORS exactly as before.
+const canonicalUrl = (process.env.CLIENT_URL || 'http://localhost:5173').split(',')[0].trim();
+const allowedOrigins = [
+  ...(process.env.CLIENT_URL || 'http://localhost:5173').split(','),
+  ...(process.env.CORS_ORIGINS || '').split(','),
+]
   .map((o) => o.trim().replace(/\/+$/, ''))
   .filter(Boolean);
+
 app.use(cors({
   origin(origin, cb) {
     // No Origin header = same-origin / non-browser client (curl, health checks) → allow.
@@ -66,6 +77,8 @@ app.use(cors({
   },
   credentials: true,
 }));
+console.log(`🔗 Canonical URL: ${canonicalUrl}`);
+console.log(`🌐 CORS origins: ${allowedOrigins.join(', ')}`);
 app.use(express.json({ limit: '6mb' })); // headroom for compressed forum image data URLs
 app.use(cookieParser());
 
