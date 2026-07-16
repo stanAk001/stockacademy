@@ -6,7 +6,7 @@ import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import LanguagePicker from './LanguagePicker';
 import ChatMarkdown from './ChatMarkdown';
-import { getLang } from '../lib/lang';
+import { getLang, LANGS } from '../lib/lang';
 
 const STARTERS = [
   'Explain this lesson in simple terms',
@@ -27,6 +27,8 @@ export default function LessonTutor({ lessonId }) {
   const [now, setNow] = useState(Date.now());
   const [freeLeft, setFreeLeft] = useState(null); // free-tier questions remaining (null = unknown)
   const [locked, setLocked] = useState(false);     // free allowance used up → upsell
+  const [lastQuestion, setLastQuestion] = useState(''); // re-asked when the language changes
+  const [translating, setTranslating] = useState(false);
 
   // Tick once a second while a cooldown is active so the countdown updates.
   useEffect(() => {
@@ -54,6 +56,7 @@ export default function LessonTutor({ lessonId }) {
       const { data } = await api.post('/ai/tutor', { lesson_id: lessonId, question, language: lang });
       if (data.success) {
         setMessages((m) => [...m, { role: 'tutor', text: data.answer }]);
+        setLastQuestion(question); // so a language switch can re-answer it
         if (typeof data.free_remaining === 'number') setFreeLeft(data.free_remaining);
       }
     } catch (err) {
@@ -77,6 +80,51 @@ export default function LessonTutor({ lessonId }) {
     }
   };
 
+  // Swap the most recent tutor reply in place, keeping the transcript intact.
+  const replaceLastAnswer = (text) =>
+    setMessages((m) => {
+      const idx = m.map((x) => x.role).lastIndexOf('tutor');
+      if (idx === -1) return [...m, { role: 'tutor', text }];
+      const copy = [...m];
+      copy[idx] = { role: 'tutor', text };
+      return copy;
+    });
+
+  // Changing the language re-answers the question you're already looking at,
+  // rather than making you re-type it. The server caches per (lesson, question,
+  // language), so flipping back to a language you've already seen is instant
+  // and costs nothing.
+  const changeLang = async (code) => {
+    if (code === lang) return;
+    setLang(code);
+    if (!lastQuestion || busy || translating || cooling || blocked) return;
+
+    setTranslating(true);
+    try {
+      const { data } = await api.post('/ai/tutor', { lesson_id: lessonId, question: lastQuestion, language: code });
+      if (data.success) {
+        replaceLastAnswer(data.answer);
+        if (typeof data.free_remaining === 'number') setFreeLeft(data.free_remaining);
+      }
+    } catch (err) {
+      const r = err.response?.data;
+      // Keep the existing answer on screen — a failed switch shouldn't lose it.
+      if (err.response?.status === 402 || r?.upgrade) {
+        setLocked(true);
+        setFreeLeft(0);
+        toast(r?.message || 'Upgrade to Premium for unlimited answers in any language.', { icon: '✨' });
+      } else if (err.response?.status === 429 || r?.limited) {
+        const secs = r?.retry_after_seconds || 60;
+        setCooldownUntil(Date.now() + secs * 1000);
+        toast(r?.message || 'Tutor limit reached. Try again shortly.', { icon: '⏳' });
+      } else {
+        toast.error(r?.message || "Couldn't switch language. Please try again.");
+      }
+    } finally {
+      setTranslating(false);
+    }
+  };
+
   // Free users get a couple of questions, then this flips true and we upsell.
   const blocked = !isPremium && (locked || freeLeft === 0);
 
@@ -95,25 +143,37 @@ export default function LessonTutor({ lessonId }) {
             {freeLeft == null ? 'Free preview' : `${freeLeft} free left`}
           </span>
         )}
-        <LanguagePicker value={lang} onChange={setLang} className="shrink-0" />
+        <LanguagePicker value={lang} onChange={changeLang} disabled={busy || translating} className="shrink-0" />
       </div>
 
       {messages.length > 0 && (
         <div className="space-y-3 mb-4">
-          {messages.map((m, i) => (
-            <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm break-words ${
-                m.role === 'user' ? 'bg-ink text-cream rounded-br-sm' : 'bg-cream-warm text-ink/85 rounded-bl-sm'
-              }`}>
-                {m.role === 'user'
-                  ? <p className="whitespace-pre-line leading-relaxed">{m.text}</p>
-                  : <ChatMarkdown className="text-ink/85">{m.text}</ChatMarkdown>}
+          {messages.map((m, i) => {
+            // The reply being re-answered in the new language fades while it swaps.
+            const isLastTutor = m.role === 'tutor' && i === messages.map((x) => x.role).lastIndexOf('tutor');
+            return (
+              <div key={i} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm break-words transition-opacity ${
+                  m.role === 'user' ? 'bg-ink text-cream rounded-br-sm' : 'bg-cream-warm text-ink/85 rounded-bl-sm'
+                } ${translating && isLastTutor ? 'opacity-40' : ''}`}>
+                  {m.role === 'user'
+                    ? <p className="whitespace-pre-line leading-relaxed">{m.text}</p>
+                    : <ChatMarkdown className="text-ink/85">{m.text}</ChatMarkdown>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {busy && (
             <div className="flex justify-start">
               <div className="bg-cream-warm rounded-2xl px-4 py-2.5"><Loader2 size={16} className="animate-spin text-ink/40" /></div>
+            </div>
+          )}
+          {translating && (
+            <div className="flex justify-start">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-ink/50 bg-cream-warm rounded-full px-2.5 py-1">
+                <Loader2 size={12} className="animate-spin" />
+                Switching to {LANGS.find((l) => l.code === lang)?.label || 'your language'}…
+              </span>
             </div>
           )}
         </div>
