@@ -1,6 +1,7 @@
 import axios from 'axios';
 import db from '../config/db.js';
 import { fetchHistoricalMetrics } from '../services/stockFundamentalsUpdater.js';
+import { getQuoteAndPersist } from '../services/marketPrice.js';
 
 const FINNHUB_KEY = process.env.FINNHUB_API_KEY || '';
 const FINNHUB_BASE = 'https://finnhub.io/api/v1';
@@ -92,37 +93,33 @@ export const getQuote = async (req, res) => {
       return res.json({ success: true, ...enrichQuote(stock, cacheRes.rows[0]), cached: true });
     }
 
-    if (hasFinnhub() && stock.country === 'US') {
-      try {
-        const { data } = await axios.get(`${FINNHUB_BASE}/quote`, {
-          params: { symbol, token: FINNHUB_KEY },
-          timeout: 4000,
-        });
-        if (data && data.c > 0) {
-          const quote = {
-            symbol,
-            price: data.c,
-            change_pct: data.dp,
-            high: data.h,
-            low: data.l,
-            open: data.o,
-            prev_close: data.pc,
-            volume: null,
-          };
-          await db.query(
-            `INSERT INTO stock_quotes_cache (symbol, price, change_pct, high, low, open, prev_close, volume, cached_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-             ON CONFLICT (symbol) DO UPDATE SET
-               price=EXCLUDED.price, change_pct=EXCLUDED.change_pct, high=EXCLUDED.high,
-               low=EXCLUDED.low, open=EXCLUDED.open, prev_close=EXCLUDED.prev_close,
-               volume=EXCLUDED.volume, cached_at=NOW()`,
-            [symbol, quote.price, quote.change_pct, quote.high, quote.low, quote.open, quote.prev_close, quote.volume]
-          );
-          return res.json({ success: true, ...enrichQuote(stock, quote), live: true });
-        }
-      } catch (e) {
-        console.warn('Finnhub quote failed for', symbol, e.message);
-      }
+    // Live quote via the shared service (US → Finnhub, NGX → NGX Pulse). Crucially
+    // it also writes back to stocks.last_price, so viewing a stock refreshes the
+    // column that rankings, compare, watchlist and the ticker all read. Before
+    // this, a live fetch only filled the short-lived quotes cache and every other
+    // page kept showing an older number.
+    const live = await getQuoteAndPersist(stock.symbol, stock.country).catch(() => null);
+    if (live?.price) {
+      const quote = {
+        symbol,
+        price: live.price,
+        change_pct: live.changePercent,
+        high: live.high,
+        low: live.low,
+        open: live.open,
+        prev_close: live.prevClose,
+        volume: null,
+      };
+      await db.query(
+        `INSERT INTO stock_quotes_cache (symbol, price, change_pct, high, low, open, prev_close, volume, cached_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+         ON CONFLICT (symbol) DO UPDATE SET
+           price=EXCLUDED.price, change_pct=EXCLUDED.change_pct, high=EXCLUDED.high,
+           low=EXCLUDED.low, open=EXCLUDED.open, prev_close=EXCLUDED.prev_close,
+           volume=EXCLUDED.volume, cached_at=NOW()`,
+        [symbol, quote.price, quote.change_pct, quote.high, quote.low, quote.open, quote.prev_close, quote.volume]
+      ).catch(() => {});
+      return res.json({ success: true, ...enrichQuote(stock, quote), live: true, as_of: live.asOf });
     }
 
     const snapshot = {

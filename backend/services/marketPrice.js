@@ -366,6 +366,34 @@ export async function refreshNgxHistoryMetrics({ limit = 40 } = {}) {
   return { ok: true, updated, total: rows.length, failed };
 }
 
+/**
+ * Refresh every tracked US price from Finnhub.
+ *
+ * Nearly every page (rankings, compare, watchlist, ticker, market lists, sector
+ * peers) reads stocks.last_price rather than calling an API itself. So keeping
+ * THIS column fresh is what makes the whole platform current at once — far
+ * cheaper than making each page fetch on its own.
+ *
+ * Finnhub's free tier allows ~60 calls/min; ~25 symbols at 250ms apart is ~4
+ * calls/sec worst case, comfortably inside it.
+ */
+export async function refreshAllUsPrices() {
+  if (!FINNHUB_KEY) return { ok: false, reason: 'no_api_key', updated: 0 };
+
+  const { rows } = await db.query(
+    `SELECT symbol FROM stocks WHERE country = 'US' AND is_active = TRUE ORDER BY symbol`
+  );
+
+  let updated = 0;
+  for (const { symbol } of rows) {
+    const q = await fetchUsQuote(symbol);
+    if (q) { await persistQuote(symbol, q); updated++; }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  await recomputeRatios();
+  return { ok: true, updated, total: rows.length };
+}
+
 /** Refresh every NGX price we track from one API call. */
 export async function refreshAllNgxPrices() {
   const all = await loadNgxAll();

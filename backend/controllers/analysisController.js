@@ -1,5 +1,6 @@
 import db from '../config/db.js';
 import { refreshFundamentals } from './stockController.js';
+import { getQuoteAndPersist } from '../services/marketPrice.js';
 
 /* ============================================================
  * STOCK ANALYSIS ENGINE
@@ -36,10 +37,17 @@ export const getAnalysis = async (req, res) => {
     }
     let stock = rows[0];
 
-    // For US stocks, try to refresh fundamentals from Finnhub (cached 24h)
+    // Fundamentals are cached 24h; the PRICE must be current every time. Fetch
+    // a live quote for the stock actually being viewed and write it back, so
+    // this page — and every page reading stocks.last_price — shows the real number.
     if (stock.country === 'US') {
       const refreshed = await refreshFundamentals(symbol);
       if (refreshed) stock = refreshed;
+    }
+    const live = await getQuoteAndPersist(stock.symbol, stock.country).catch(() => null);
+    if (live?.price) {
+      stock.last_price = live.price;
+      if (live.changePercent != null) stock.day_change_pct = live.changePercent;
     }
 
     // Track view (recently-viewed list)

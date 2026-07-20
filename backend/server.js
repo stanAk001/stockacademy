@@ -13,7 +13,7 @@ import cookieParser from 'cookie-parser';
 import cron from 'node-cron';
 import { updateAllUSStocks } from './services/stockFundamentalsUpdater.js';
 import { refreshUsSnapshots } from './services/marketSnapshot.js';
-import { refreshAllNgxPrices, refreshNgxHistoryMetrics } from './services/marketPrice.js';
+import { refreshAllNgxPrices, refreshNgxHistoryMetrics, refreshAllUsPrices } from './services/marketPrice.js';
 import { checkPriceAlerts } from './services/alertEngine.js';
 import authRoutes from './routes/auth.js';
 import courseRoutes from './routes/courses.js';
@@ -202,6 +202,34 @@ cron.schedule('30 6 * * *', async () => {
 }, {
   timezone: 'Africa/Lagos',
 });
+
+// Keep every page current. Rankings, compare, watchlist, the ticker and the
+// market lists all read stocks.last_price instead of calling an API themselves,
+// so refreshing that column on a timer is what makes the WHOLE platform fresh.
+// The stock page you actually open also fetches live on top of this.
+const PRICE_REFRESH_MS = Number(process.env.PRICE_REFRESH_MS) || 3 * 60 * 1000;
+let priceRefreshBusy = false;
+const runPriceRefresh = async () => {
+  if (priceRefreshBusy) return; // never overlap runs
+  priceRefreshBusy = true;
+  try {
+    const us = await refreshAllUsPrices();
+    if (us.updated) console.log(`[prices] US refreshed ${us.updated}/${us.total}`);
+    // NGX moves far slower and the free plan is 100 calls/day, so only every 5th
+    // cycle (~15 min) — still one call for all 146 equities.
+    if (Date.now() % (5 * PRICE_REFRESH_MS) < PRICE_REFRESH_MS) {
+      const ng = await refreshAllNgxPrices();
+      if (ng.updated) console.log(`[prices] NGX refreshed ${ng.updated}/${ng.total}`);
+    }
+  } catch (e) {
+    console.warn('[prices] refresh cycle failed:', e.message);
+  } finally {
+    priceRefreshBusy = false;
+  }
+};
+setInterval(runPriceRefresh, PRICE_REFRESH_MS);
+setTimeout(runPriceRefresh, 15_000); // once shortly after boot
+console.log(`💹 Price auto-refresh every ${Math.round(PRICE_REFRESH_MS / 60000)} min`);
 
 // Keep-alive: ping our own public URL so a sleeping-tier host (Render free)
 // stays warm. Render exposes RENDER_EXTERNAL_URL automatically; SELF_PING_URL
