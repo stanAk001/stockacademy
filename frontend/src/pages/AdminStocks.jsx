@@ -16,14 +16,18 @@ const FIELD_GROUPS = [
     { key: 'high_52w', label: '52-week high', step: '0.01' },
     { key: 'low_52w', label: '52-week low', step: '0.01' },
   ]},
-  { title: 'Valuation', fields: [
-    { key: 'pe_ratio', label: 'P/E ratio', step: '0.01' },
+  // EPS and dividend-per-share are the INPUTS (from published results, entered
+  // once or twice a year). P/E and dividend yield are DERIVED from them plus the
+  // live price, so they're shown read-only and can never go stale.
+  { title: 'Valuation', note: 'Enter EPS and dividend/share from the company\'s results — P/E and yield calculate themselves from the live price.', fields: [
+    { key: 'eps', label: 'EPS (₦) — from annual results', step: '0.01' },
+    { key: 'dividend_per_share', label: 'Dividend per share (₦) — annual', step: '0.01' },
+    { key: 'pe_ratio', label: 'P/E ratio', step: '0.01', derived: 'price ÷ EPS' },
+    { key: 'dividend_yield', label: 'Dividend yield', step: '0.001', derived: 'dividend ÷ price' },
     { key: 'pb_ratio', label: 'P/B ratio', step: '0.01' },
     { key: 'ps_ratio', label: 'P/S ratio', step: '0.01' },
     { key: 'ev_ebitda', label: 'EV/EBITDA', step: '0.01' },
     { key: 'peg_ratio', label: 'PEG ratio', step: '0.01' },
-    { key: 'dividend_yield', label: 'Dividend yield (decimal, e.g. 0.04 = 4%)', step: '0.001' },
-    { key: 'eps', label: 'EPS (₦)', step: '0.01' },
     { key: 'market_cap_millions', label: 'Market cap (₦ millions)', step: '1' },
   ]},
   { title: 'Profitability', fields: [
@@ -142,16 +146,20 @@ export default function AdminStocks() {
         <div className="card-soft p-4 mb-5 bg-sun-100/60 border-l-4 border-sun-400">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="min-w-0">
-              <p className="font-bold text-sm">🤖 Fill NGX fundamentals with AI</p>
+              <p className="font-bold text-sm">🇳🇬 Refresh NGX live data</p>
               <p className="text-xs text-ink/60 max-w-xl">
-                No free live NGX feed exists, so this asks the AI for reference estimates (market cap, P/E,
-                dividend yield, 1-year return) computed against your real prices — it powers the Discover
-                rankings. Estimates only, so spot-check the big names and correct them below.
+                Pulls real prices, market caps and sectors from the NGX feed, then recomputes returns,
+                volatility and 52-week range from actual trade history (takes ~3 min in the background).
+                P/E and dividend yield aren't available on the free plan — leave them blank or enter
+                verified figures in Deep edit below.
               </p>
             </div>
             <RefreshNGXButton onDone={load} />
           </div>
         </div>
+
+        {/* Destructive: clean slate for paper trading */}
+        <ResetSimulatorPanel />
 
         {/* NGX data sources */}
         <div className="card-soft p-4 mb-5">
@@ -255,16 +263,92 @@ function RefreshUSButton() {
   );
 }
 
+// Wiping every user's paper portfolio is irreversible, so the button stays
+// disabled until the admin types RESET. Needed because trades used to fill at
+// mock prices, making all existing positions and P&L meaningless.
+function ResetSimulatorPanel() {
+  const [open, setOpen] = useState(false);
+  const [confirm, setConfirm] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const run = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.post('/admin/simulator/reset', { confirm: 'RESET' });
+      if (data.success) {
+        setResult(data);
+        toast.success(`Reset ${data.users_reset} users to $${Number(data.starting_balance).toLocaleString()}`);
+        setConfirm('');
+        setOpen(false);
+      } else {
+        toast.error(data.message || 'Reset failed');
+      }
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Reset failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="card-soft p-4 mb-5 bg-coral-300/15 border-l-4 border-coral-400">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div className="min-w-0">
+          <p className="font-bold text-sm flex items-center gap-1.5">
+            <AlertTriangle size={15} className="text-coral-500" /> Reset paper trading
+          </p>
+          <p className="text-xs text-ink/60 max-w-xl mt-0.5">
+            Trades used to fill at mock prices (AAPL at ~$178 while the market was ~$333), so every
+            existing position and P&amp;L is wrong. This deletes all portfolios and trade history and
+            gives every user a clean $100,000. <strong className="text-ink">It cannot be undone.</strong>
+          </p>
+          {result && (
+            <p className="text-xs text-bull-700 font-semibold mt-2">
+              ✅ Cleared {result.positions_cleared} positions and {result.trades_cleared} trades ·
+              {' '}{result.users_reset} users reset.
+            </p>
+          )}
+        </div>
+        {!open ? (
+          <button onClick={() => setOpen(true)} className="btn-ghost text-sm shrink-0 border-coral-400/50">
+            Reset simulator…
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 shrink-0">
+            <input
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value.toUpperCase())}
+              placeholder="Type RESET"
+              className="w-32 px-2 py-1.5 rounded border-2 border-coral-400/40 focus:border-coral-500 text-sm font-mono font-bold outline-none bg-white"
+            />
+            <button
+              onClick={run}
+              disabled={confirm !== 'RESET' || loading}
+              className="btn-primary text-sm bg-bear-500 hover:bg-bear-600 disabled:opacity-40"
+            >
+              {loading ? <><Loader2 size={14} className="animate-spin" /> Resetting…</> : 'Confirm reset'}
+            </button>
+            <button onClick={() => { setOpen(false); setConfirm(''); }} className="text-xs text-ink/50 hover:text-ink">
+              Cancel
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function RefreshNGXButton({ onDone }) {
   const [loading, setLoading] = useState(false);
 
   const refresh = async () => {
-    if (!confirm('Fill NGX fundamentals with AI reference estimates? This uses your Anthropic credit and takes ~30 seconds.')) return;
+    if (!confirm('Refresh NGX prices from the live feed? Returns and volatility recompute in the background (~3 min).')) return;
     setLoading(true);
     try {
       const { data } = await api.post('/admin/stocks/refresh-ngx');
       if (data.success) {
-        toast.success(`Updated ${data.updated}/${data.total} NGX stocks`);
+        toast.success(`Updated ${data.updated}/${data.total} NGX prices · history recomputing`);
         onDone?.();
       } else {
         toast.error(data.message || 'Refresh failed');
@@ -343,15 +427,27 @@ function StockExpandable({ stock, expanded, onToggle, onSaved }) {
             {FIELD_GROUPS.map((group) => (
               <div key={group.title} className="space-y-2">
                 <p className="text-xs font-bold uppercase tracking-wider text-coral-500">{group.title}</p>
+                {group.note && <p className="text-[10px] text-ink/50 leading-snug -mt-1">{group.note}</p>}
                 {group.fields.map((f) => (
                   <label key={f.key} className="block">
-                    <span className="text-xs font-semibold text-ink/70 block mb-0.5">{f.label}</span>
+                    <span className="text-xs font-semibold text-ink/70 block mb-0.5">
+                      {f.label}
+                      {f.derived && (
+                        <span className="ml-1 font-normal text-[10px] text-bull-600">· auto ({f.derived})</span>
+                      )}
+                    </span>
                     <input
                       type="number" step={f.step}
                       value={form[f.key] ?? ''}
+                      readOnly={Boolean(f.derived)}
+                      title={f.derived ? `Calculated automatically: ${f.derived}. Enter EPS or dividend/share instead.` : undefined}
                       onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
                       placeholder="—"
-                      className="w-full px-2 py-1.5 rounded border-2 border-ink/10 focus:border-ink/30 text-sm font-mono font-semibold text-ink outline-none bg-white"
+                      className={`w-full px-2 py-1.5 rounded border-2 text-sm font-mono font-semibold outline-none ${
+                        f.derived
+                          ? 'border-ink/5 bg-cream-warm text-ink/55 cursor-not-allowed'
+                          : 'border-ink/10 focus:border-ink/30 text-ink bg-white'
+                      }`}
                     />
                   </label>
                 ))}

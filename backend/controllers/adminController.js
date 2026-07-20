@@ -1,7 +1,7 @@
 import db from '../config/db.js';
 import { notifyNewSignup } from '../services/telegramService.js';
 import { updateAllUSStocks, updateSingleStock } from '../services/stockFundamentalsUpdater.js';
-import { populateNgxFundamentals } from '../services/ngxFundamentals.js';
+import { refreshAllNgxPrices, refreshNgxHistoryMetrics, recomputeRatios } from '../services/marketPrice.js';
 
 function requireAdmin(req, res) {
   if (!req.user?.is_admin) {
@@ -453,6 +453,7 @@ export const updateAdminStock = async (req, res) => {
       high_52w: 'high_52w', low_52w: 'low_52w',
       pe_ratio: 'pe_ratio', pb_ratio: 'pb_ratio', ps_ratio: 'ps_ratio', ev_ebitda: 'ev_ebitda', peg_ratio: 'peg_ratio',
       dividend_yield: 'dividend_yield', eps: 'eps', market_cap_millions: 'market_cap_millions',
+      dividend_per_share: 'dividend_per_share',
       roe: 'roe', roa: 'roa', gross_margin: 'gross_margin', net_margin: 'net_margin',
       debt_to_equity: 'debt_to_equity', current_ratio: 'current_ratio',
       revenue_growth_yoy: 'revenue_growth_yoy', earnings_growth_yoy: 'earnings_growth_yoy',
@@ -493,8 +494,17 @@ export const updateAdminStock = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Stock not found' });
     }
 
+    // If EPS or dividend/share changed, P/E and yield must follow immediately —
+    // they're derived from those inputs plus the live price.
+    let saved = result.rows[0];
+    if ('eps' in req.body || 'dividend_per_share' in req.body) {
+      await recomputeRatios(symbol);
+      const fresh = await db.query('SELECT * FROM stocks WHERE symbol = $1', [symbol]);
+      saved = fresh.rows[0] || saved;
+    }
+
     await logAction(req.user.id, 'update_stock', 'stock', null, { symbol });
-    res.json({ success: true, stock: result.rows[0] });
+    res.json({ success: true, stock: saved });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Update failed' });
@@ -568,17 +578,111 @@ export const refreshUSStocks = async (req, res) => {
 };
 
 /* ============================================
+ * POST /api/admin/simulator/reset
+ * Wipe paper-trading state and hand everyone a clean $100,000.
+ *
+ * Needed because trades used to execute against a hardcoded mock price table
+ * (AAPL filling at ~$178 while the market was ~$333), so every existing
+ * position and P&L is meaningless. This is DESTRUCTIVE and irreversible, so it
+ * requires an explicit confirm string in the body.
+ *
+ * Body: { confirm: "RESET" , scope?: "all" | number (single user id) }
+ * ============================================ */
+const STARTING_BALANCE = 100000.00;
+
+export const resetSimulator = async (req, res) => {
+  if (!requireAdmin(req, res)) return;
+
+  if (req.body?.confirm !== 'RESET') {
+    return res.status(400).json({
+      success: false,
+      message: 'Send { confirm: "RESET" } to confirm. This permanently deletes all paper-trading history.',
+    });
+  }
+
+  const singleUserId = Number.isInteger(req.body?.scope) ? req.body.scope : null;
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+
+    // Count first so we can report honestly what was removed.
+    const countSql = singleUserId
+      ? [`SELECT COUNT(*)::int n FROM portfolios WHERE user_id = $1`, [singleUserId]]
+      : [`SELECT COUNT(*)::int n FROM portfolios`, []];
+    const txSql = singleUserId
+      ? [`SELECT COUNT(*)::int n FROM transactions WHERE user_id = $1`, [singleUserId]]
+      : [`SELECT COUNT(*)::int n FROM transactions`, []];
+    const positions = (await client.query(...countSql)).rows[0].n;
+    const trades = (await client.query(...txSql)).rows[0].n;
+
+    if (singleUserId) {
+      await client.query('DELETE FROM portfolios WHERE user_id = $1', [singleUserId]);
+      await client.query('DELETE FROM transactions WHERE user_id = $1', [singleUserId]);
+      await client.query('UPDATE users SET virtual_balance = $1 WHERE id = $2', [STARTING_BALANCE, singleUserId]);
+    } else {
+      await client.query('DELETE FROM portfolios');
+      await client.query('DELETE FROM transactions');
+      await client.query('UPDATE users SET virtual_balance = $1', [STARTING_BALANCE]);
+    }
+
+    const usersRes = singleUserId
+      ? { rows: [{ n: 1 }] }
+      : await client.query('SELECT COUNT(*)::int n FROM users');
+
+    await client.query('COMMIT');
+    await logAction(req.user.id, 'reset_simulator', 'simulator', null, {
+      scope: singleUserId || 'all', positions, trades,
+    });
+
+    res.json({
+      success: true,
+      scope: singleUserId || 'all',
+      positions_cleared: positions,
+      trades_cleared: trades,
+      users_reset: usersRes.rows[0].n,
+      starting_balance: STARTING_BALANCE,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('resetSimulator error:', err);
+    res.status(500).json({ success: false, message: 'Reset failed — nothing was changed.' });
+  } finally {
+    client.release();
+  }
+};
+
+/* ============================================
  * POST /api/admin/stocks/refresh-ngx
  * Populate NGX reference fundamentals via Claude (no live NGX feed exists).
  * ============================================ */
 export const refreshNgxFundamentals = async (req, res) => {
   if (!requireAdmin(req, res)) return;
   try {
-    const result = await populateNgxFundamentals();
-    if (!result.ok) {
-      return res.status(502).json({ success: false, message: `Could not refresh NGX data (${result.error}). Check ANTHROPIC_API_KEY + credit.` });
+    // Real data from NGX Pulse — this used to call the AI estimator, which put
+    // guessed P/E and market caps into the table (Dangote's cap was ~23x off).
+    // Prices are one fast call; the per-stock history is paced for the free
+    // tier's 10 req/min, so it runs in the background.
+    const prices = await refreshAllNgxPrices();
+    if (!prices.ok) {
+      return res.status(502).json({
+        success: false,
+        message: prices.reason === 'no_api_key'
+          ? 'NGX_PULSE_API_KEY is not set on the server.'
+          : 'Could not reach the NGX price feed. Please try again.',
+      });
     }
-    res.json({ success: true, ...result });
+
+    refreshNgxHistoryMetrics()
+      .then((r) => console.log('[admin] NGX history metrics:', JSON.stringify(r)))
+      .catch((e) => console.warn('[admin] NGX history metrics failed:', e.message));
+
+    res.json({
+      success: true,
+      updated: prices.updated,
+      total: prices.total,
+      available: prices.available,
+      note: 'Prices updated. Returns and volatility are recomputing in the background (~3 min).',
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'NGX refresh failed' });

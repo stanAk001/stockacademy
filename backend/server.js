@@ -13,6 +13,7 @@ import cookieParser from 'cookie-parser';
 import cron from 'node-cron';
 import { updateAllUSStocks } from './services/stockFundamentalsUpdater.js';
 import { refreshUsSnapshots } from './services/marketSnapshot.js';
+import { refreshAllNgxPrices, refreshNgxHistoryMetrics } from './services/marketPrice.js';
 import { checkPriceAlerts } from './services/alertEngine.js';
 import authRoutes from './routes/auth.js';
 import courseRoutes from './routes/courses.js';
@@ -143,6 +144,13 @@ cron.schedule('0 6 * * *', async () => {
   // Yahoo covers ratios; Finnhub tops up live price + day change (used by recaps,
   // Compare, and Stock Detail). Runs regardless of whether Yahoo succeeded.
   await refreshUsSnapshots();
+  // One NGX Pulse call refreshes every NGX price we track.
+  await refreshAllNgxPrices().catch((e) => console.warn('[cron] NGX price refresh:', e.message));
+  // Real NGX returns/volatility computed from price history. ~27 calls, paced
+  // for the free tier's 10/min — runs in the background so the job isn't held up.
+  refreshNgxHistoryMetrics()
+    .then((r) => console.log('[cron] NGX history metrics:', JSON.stringify(r)))
+    .catch((e) => console.warn('[cron] NGX history metrics:', e.message));
   // Fresh prices in — check alerts right away.
   const fired = await checkPriceAlerts();
   if (fired) console.log(`[cron] Fired ${fired} price alert(s) after price update`);

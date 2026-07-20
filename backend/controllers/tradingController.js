@@ -1,6 +1,7 @@
 import axios from 'axios';
 import YahooFinance from 'yahoo-finance2';
 import db from '../config/db.js';
+import { getQuote, getQuoteAndPersist } from '../services/marketPrice.js';
 
 const yahooFinanceClient = new YahooFinance();
 
@@ -18,6 +19,21 @@ const mockPrices = {
   JPM: { name: 'JPMorgan Chase', price: 198.15 },
   V: { name: 'Visa Inc.', price: 274.1 },
 };
+
+// Trades must fill at the REAL market price. This used to fill from a hardcoded
+// mockPrices table (AAPL at $178 while the market said $333), so every position
+// and P&L in the simulator was wrong. Returns { price, name } or null.
+async function resolveTradePrice(sym) {
+  const { rows } = await db.query(
+    `SELECT symbol, name, country FROM stocks
+     WHERE UPPER(symbol) = $1 OR UPPER(display_symbol) = $1 LIMIT 1`,
+    [sym]
+  );
+  const stock = rows[0];
+  const quote = await getQuote(stock?.symbol || sym, stock?.country);
+  if (!quote?.price) return null;
+  return { price: quote.price, name: stock?.name || sym };
+}
 
 const jitter = (base) => {
   const pct = (Math.random() - 0.5) * 0.04;
@@ -73,75 +89,96 @@ export const getStockQuote = async (req, res) => {
   try {
     const symbol = req.params.symbol.toUpperCase();
 
-    if (process.env.FINNHUB_API_KEY) {
-      try {
-        const { data } = await axios.get(
-          `https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${process.env.FINNHUB_API_KEY}`
-        );
-        return res.json({
-          success: true,
-          symbol,
-          name: mockPrices[symbol]?.name || symbol,
-          price: data.c,
-          change: data.d,
-          changePercent: data.dp,
-          high: data.h,
-          low: data.l,
-          open: data.o,
-          prevClose: data.pc,
-        });
-      } catch (e) {
-        // fall through to mock
-      }
-    }
+    // Everything quotes through the shared price service, so the simulator, the
+    // stock page, rankings and compare all show the SAME number. It also writes
+    // the fresh price back to the stocks table to keep those pages in step.
+    const { rows } = await db.query(
+      `SELECT symbol, display_symbol, name, country, currency, last_price, day_change_pct,
+              prev_close, data_updated_at
+       FROM stocks WHERE UPPER(symbol) = $1 OR UPPER(display_symbol) = $1 LIMIT 1`,
+      [symbol]
+    );
+    const stock = rows[0] || null;
 
-    const mock = mockPrices[symbol];
-    if (!mock) {
+    const quote = await getQuoteAndPersist(stock?.symbol || symbol, stock?.country);
+    if (quote) {
       return res.json({
         success: true,
         symbol,
-        name: symbol,
-        price: jitter(100),
-        change: 0,
-        changePercent: 0,
-        mocked: true,
+        name: stock?.name || symbol,
+        price: quote.price,
+        change: quote.change,
+        changePercent: quote.changePercent,
+        high: quote.high,
+        low: quote.low,
+        open: quote.open,
+        prevClose: quote.prevClose,
+        currency: quote.currency || stock?.currency || 'USD',
+        source: quote.source,
+        as_of: quote.asOf,
+        live: true,
       });
     }
-    const price = jitter(mock.price);
-    const change = +(price - mock.price).toFixed(2);
-    const changePercent = +((change / mock.price) * 100).toFixed(2);
-    res.json({
-      success: true,
-      symbol,
-      name: mock.name,
-      price,
-      change,
-      changePercent,
-      high: +(price * 1.02).toFixed(2),
-      low: +(price * 0.98).toFixed(2),
-      open: +(mock.price).toFixed(2),
-      prevClose: +(mock.price).toFixed(2),
-      mocked: true,
+
+    // No live quote. Serve the last stored price and say how old it is — we do
+    // NOT invent one. (This path used to return a random mock price, which is
+    // why the simulator disagreed with the rest of the app.)
+    if (stock?.last_price != null) {
+      return res.json({
+        success: true,
+        symbol,
+        name: stock.name || symbol,
+        price: Number(stock.last_price),
+        change: null,
+        changePercent: stock.day_change_pct != null ? Number(stock.day_change_pct) : null,
+        high: null,
+        low: null,
+        open: null,
+        prevClose: stock.prev_close != null ? Number(stock.prev_close) : null,
+        currency: stock.currency || 'USD',
+        source: 'stored',
+        as_of: stock.data_updated_at,
+        live: false,
+        stale: true,
+      });
+    }
+
+    return res.status(503).json({
+      success: false,
+      message: 'Live price is unavailable for this stock right now.',
     });
   } catch (err) {
-    console.error(err);
+    console.error('getStockQuote error:', err);
     res.status(500).json({ success: false, message: 'Failed to fetch quote' });
   }
 };
 
 export const getMarketOverview = async (req, res) => {
-  const overview = Object.entries(mockPrices).map(([symbol, v]) => {
-    const price = jitter(v.price);
-    const change = +(price - v.price).toFixed(2);
-    return {
-      symbol,
-      name: v.name,
-      price,
-      change,
-      changePercent: +((change / v.price) * 100).toFixed(2),
-    };
-  });
-  res.json({ success: true, stocks: overview });
+  try {
+    // The market list reads the stocks table, which the price service keeps
+    // fresh — so these rows match what the stock pages show. No mock jitter.
+    const { rows } = await db.query(
+      `SELECT symbol, display_symbol, name, currency, last_price, day_change_pct
+       FROM stocks
+       WHERE is_active = TRUE AND last_price IS NOT NULL
+       ORDER BY market_cap_millions DESC NULLS LAST, display_symbol
+       LIMIT 40`
+    );
+
+    const stocks = rows.map((r) => ({
+      symbol: r.display_symbol || r.symbol,
+      name: r.name,
+      price: Number(r.last_price),
+      change: null, // absolute change isn't stored; percent is the useful one
+      changePercent: r.day_change_pct != null ? Number(r.day_change_pct) : null,
+      currency: r.currency || 'USD',
+    }));
+
+    res.json({ success: true, stocks });
+  } catch (err) {
+    console.error('getMarketOverview error:', err);
+    res.status(500).json({ success: false, message: 'Failed to load market overview' });
+  }
 };
 
 export const getCandles = async (req, res) => {
@@ -240,8 +277,16 @@ export const buy = async (req, res) => {
     }
 
     const s = symbol.toUpperCase();
-    const mock = mockPrices[s] || { name: s, price: 100 };
-    const price = mock.price;
+    // Fetch before BEGIN — never hold a transaction open across a network call.
+    const fill = await resolveTradePrice(s);
+    if (!fill) {
+      return res.status(503).json({
+        success: false,
+        message: "We couldn't get a live price for that stock right now. Please try again in a moment.",
+      });
+    }
+    const mock = { name: fill.name };
+    const price = fill.price;
     const total = +(price * shares).toFixed(2);
 
     await client.query('BEGIN');
@@ -297,8 +342,16 @@ export const sell = async (req, res) => {
   try {
     const { symbol, shares } = req.body;
     const s = symbol.toUpperCase();
-    const mock = mockPrices[s] || { name: s, price: 100 };
-    const price = mock.price;
+    // Fetch before BEGIN — never hold a transaction open across a network call.
+    const fill = await resolveTradePrice(s);
+    if (!fill) {
+      return res.status(503).json({
+        success: false,
+        message: "We couldn't get a live price for that stock right now. Please try again in a moment.",
+      });
+    }
+    const mock = { name: fill.name };
+    const price = fill.price;
     const total = +(price * shares).toFixed(2);
 
     await client.query('BEGIN');
@@ -343,10 +396,17 @@ export const sell = async (req, res) => {
 export const getPortfolio = async (req, res) => {
   try {
     const { rows } = await db.query('SELECT * FROM portfolios WHERE user_id = $1', [req.user.id]);
-    const enriched = rows.map((p) => {
-      const currentPrice = mockPrices[p.symbol]?.price
-        ? jitter(mockPrices[p.symbol].price)
-        : parseFloat(p.avg_buy_price);
+
+    // Value holdings at the REAL current price (cached, so this is cheap). It
+    // used to use a jittered mock, which made P&L drift randomly on refresh.
+    // If a price genuinely isn't available, fall back to cost basis so the row
+    // shows 0 P&L rather than an invented gain or loss.
+    const prices = await Promise.all(
+      rows.map((p) => getQuote(p.symbol).catch(() => null))
+    );
+
+    const enriched = rows.map((p, i) => {
+      const currentPrice = prices[i]?.price ?? parseFloat(p.avg_buy_price);
       const marketValue = +(currentPrice * parseFloat(p.shares)).toFixed(2);
       const costBasis = +(parseFloat(p.avg_buy_price) * parseFloat(p.shares)).toFixed(2);
       const pl = +(marketValue - costBasis).toFixed(2);

@@ -27,6 +27,8 @@ router.patch('/forum/comments/:id', admin.moderateComment);
 router.get('/revenue', admin.getRevenue);
 router.post('/stocks/refresh-us', admin.refreshUSStocks);
 router.post('/stocks/refresh-ngx', admin.refreshNgxFundamentals);
+// Destructive: wipes paper-trading state. Requires { confirm: "RESET" }.
+router.post('/simulator/reset', admin.resetSimulator);
 router.post('/stocks/refresh-one/:symbol', admin.refreshOneStock);
 
 // NGX stock data management

@@ -12,6 +12,7 @@ import db from '../config/db.js';
 import { CANONICAL_URL } from '../config/appUrl.js';
 import { analyzeWithAI, parseJsonFromAI } from '../services/aiProvider.js';
 import { refreshUsSnapshots } from '../services/marketSnapshot.js';
+import { refreshAllNgxPrices } from '../services/marketPrice.js';
 
 const SITE = 'StockAcademia';
 const DISCLAIMER = 'Educational analysis only — not financial advice. Investment decisions are yours to make.';
@@ -186,8 +187,10 @@ export const cronDailyRecap = async (req, res) => {
   }
   try {
     const snapshot = await refreshUsSnapshots().catch((e) => ({ ok: false, error: e.message }));
+    // One NGX Pulse call refreshes every NGX price we track.
+    const ngx = await refreshAllNgxPrices().catch((e) => ({ ok: false, error: e.message }));
     const recap = await generateDailyRecap({ force: Boolean(req.query.force) });
-    return res.json({ success: recap.ok !== false, snapshot, recap });
+    return res.json({ success: recap.ok !== false, snapshot, ngx, recap });
   } catch (err) {
     console.error('cronDailyRecap error:', err);
     return res.status(500).json({ success: false, message: 'Daily pipeline failed' });

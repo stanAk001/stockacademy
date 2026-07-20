@@ -85,10 +85,15 @@ export default function Rankings() {
           ))}
         </div>
 
-        {country !== 'US' && (
+        {country !== 'US' && (metricId === 'dividend' || metricId === 'value') && (
           <p className="text-[11px] text-ink/45 mb-5 flex items-start gap-1.5">
             <span className="shrink-0">ℹ️</span>
-            <span>NGX figures are AI-sourced reference estimates (there's no free live NGX data feed yet), computed against real prices — verify before relying on them. US figures are live.</span>
+            <span>
+              P/E and dividend yield aren't available for NGX stocks on our current data plan, so
+              Nigerian names won't appear in this list. Their prices, market caps and performance
+              are live — try <button onClick={() => setMetricId('gainers')} className="underline font-semibold hover:text-ink">Top 1-year performers</button> or{' '}
+              <button onClick={() => setMetricId('largest')} className="underline font-semibold hover:text-ink">Largest companies</button>.
+            </span>
           </p>
         )}
 
