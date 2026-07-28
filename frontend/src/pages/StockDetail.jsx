@@ -327,6 +327,15 @@ function AiVerdict({ ticker, displaySymbol }) {
             </div>
           )}
 
+          {data.bottom_line && (
+            <div className="rounded-2xl p-4 bg-sun-300 text-ink">
+              <p className="text-[11px] font-black uppercase tracking-widest mb-1 flex items-center gap-1.5">
+                <Sparkles size={13} /> The bottom line — your call
+              </p>
+              <ChatMarkdown className="text-ink/90">{data.bottom_line}</ChatMarkdown>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
             <p className="text-[11px] text-cream/50 italic max-w-md">{data.disclaimer}</p>
             <button onClick={generate} className="text-sun-300 text-xs font-bold hover:underline flex items-center gap-1">

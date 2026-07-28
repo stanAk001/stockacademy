@@ -215,6 +215,16 @@ function Results({ result, onRescan }) {
         )}
       </div>
 
+      {/* The decisive read */}
+      {a.bottom_line && (
+        <div className="rounded-2xl p-5 bg-ink text-cream min-w-0">
+          <p className="text-[11px] font-black uppercase tracking-widest text-sun-300 mb-1.5 flex items-center gap-1.5">
+            <Brain size={13} /> What this means for you
+          </p>
+          <ChatMarkdown tone="dark" className="text-cream/90">{a.bottom_line}</ChatMarkdown>
+        </div>
+      )}
+
       {/* Share + other premium AI tools */}
       <div className="flex flex-wrap gap-2 pt-1">
         <ShareButton spec={shareSpec} filename={`news-${result.symbol}.png`} label="Share summary" />
