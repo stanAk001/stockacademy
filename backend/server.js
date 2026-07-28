@@ -98,6 +98,13 @@ app.get(['/api/health', '/healthz'], (req, res) => {
     status: 'ok',
     service: 'StockAcademia API',
     uptime_seconds: Math.floor(process.uptime()),
+    // Booleans only — never the values. Lets us confirm which keys are actually
+    // set on the host without exposing secrets. A missing key = stale prices.
+    keys: {
+      finnhub: Boolean(process.env.FINNHUB_API_KEY),   // US prices
+      ngx_pulse: Boolean(process.env.NGX_PULSE_API_KEY), // NGX prices
+      anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
+    },
     timestamp: new Date().toISOString(),
   });
 });
@@ -214,7 +221,8 @@ const runPriceRefresh = async () => {
   priceRefreshBusy = true;
   try {
     const us = await refreshAllUsPrices();
-    if (us.updated) console.log(`[prices] US refreshed ${us.updated}/${us.total}`);
+    if (us.ok) console.log(`[prices] US refreshed ${us.updated}/${us.total}`);
+    else console.warn(`[prices] US refresh did nothing — ${us.reason === 'no_api_key' ? 'FINNHUB_API_KEY is NOT set on this host' : us.reason}`);
     // NGX moves far slower and the free plan is 100 calls/day, so only every 5th
     // cycle (~15 min) — still one call for all 146 equities.
     if (Date.now() % (5 * PRICE_REFRESH_MS) < PRICE_REFRESH_MS) {
