@@ -24,7 +24,7 @@ export const aiStockBrief = async (req, res) => {
     }
     const lang = req.query?.language;
 
-    const key = `brief:v1:${raw}:${langKey(lang)}`;
+    const key = `brief:v2:${raw}:${langKey(lang)}`;
     const cached = await readCache(key);
     if (cached) return res.json({ success: true, cached: true, ...cached });
 

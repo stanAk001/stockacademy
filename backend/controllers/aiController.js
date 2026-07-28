@@ -24,22 +24,40 @@ const DISCLAIMER =
 // Append a directive so Claude answers in the user's chosen language, and a
 // short code for the cache key (so each language caches separately).
 const LANG_NAME = { pcm: 'Nigerian Pidgin English', yo: 'Yorùbá', ha: 'Hausa', ig: 'Igbo' };
+
+// Anchor words per language. Low-resource languages (Yorùbá/Hausa/Igbo) make the
+// model drift back to English or Pidgin after the first line, so we seed it with
+// everyday words to hold it in-language.
+const LANG_ANCHORS = {
+  yo: 'owó (money), èrè (profit), ọjà (market), ilé-iṣẹ́ (company), ìdókòwò (investment), kí ni (what is), fún àpẹẹrẹ (for example), nítorí (because)',
+  ha: 'kuɗi (money), riba (profit), kasuwa (market), kamfani (company), zuba jari (investment), mene ne (what is), misali (for example), saboda (because)',
+  ig: "ego (money), uru (profit), ahịa (market), ụlọ ọrụ (company), itinye ego (investment), gịnị bụ (what is), dịka (for example), n'ihi na (because)",
+};
+
 export function langDirective(lang) {
   if (lang === 'pcm') {
     // Push for REAL Naija Pidgin, not anglicised English with a few pidgin words.
-    return ` IMPORTANT: Write your ENTIRE response in real, natural Nigerian Pidgin (Naija) — the way ` +
-      `people actually talk, NOT anglicised English with a few pidgin words sprinkled in. Use proper ` +
-      `Pidgin grammar and rhythm ("e dey", "don", "go", "wan", "make", "wetin", "sabi", "no be", ` +
-      `"e get", "abeg", "small small", "wahala", "gain / loss", "your money") wherever it fits ` +
-      `naturally. Keep stock tickers, company names and finance terms (P/E, ROE) recognisable, but ` +
-      `break down wetin dem mean for Pidgin. Sound like a sharp, warm Naija mentor wey dey teach ` +
-      `person wey wan learn.`;
+    return ` CRITICAL LANGUAGE RULE: Write your ENTIRE response in real, natural Nigerian Pidgin (Naija) — ` +
+      `the way people actually talk, NOT anglicised English with a few pidgin words sprinkled in. Use proper ` +
+      `Pidgin grammar and rhythm ("e dey", "don", "go", "wan", "make", "wetin", "sabi", "no be", "e get", ` +
+      `"abeg", "small small", "wahala") wherever it fits. EVERY heading, sentence and bullet — first word to ` +
+      `last — must be Pidgin; do not switch to plain English at any point. Keep stock tickers, company names ` +
+      `and finance terms (P/E, ROE) recognisable, but break down wetin dem mean for Pidgin. Before you ` +
+      `finish, read your whole answer again and rewrite any line wey slip into plain English.`;
   }
   const name = LANG_NAME[lang];
   if (!name) return ''; // English / unknown → default, no change
-  return ` IMPORTANT: Write your ENTIRE response in natural, everyday ${name} — the way a real ${name} ` +
-    `speaker talks, not stiff or over-formal. Keep stock tickers, company names, and standard finance ` +
-    `terms (e.g. P/E, ROE) recognisable, but explain everything else in ${name}. Stay warm and beginner-friendly.`;
+  const anchors = LANG_ANCHORS[lang];
+  return ` CRITICAL LANGUAGE RULE: Write your ENTIRE response in ${name}, from the very first word to the ` +
+    `very last — every heading, every sentence, every bullet, every list item. Do NOT switch to English or ` +
+    `Pidgin at ANY point, not even for one sentence or one heading. Mixing languages breaks the user's ` +
+    `trust, so this matters more than anything else. ` +
+    (anchors ? `Write like a real, everyday ${name} speaker (for example: ${anchors}). ` : '') +
+    `Keep ONLY stock tickers, company names and finance abbreviations (P/E, ROE, EPS) recognisable, but ` +
+    `explain what they mean in ${name}. If a concept has no common ${name} word, describe it using simple ` +
+    `${name} words — never fall back to English. When you have finished, re-read your entire answer and ` +
+    `rewrite any word or line that slipped into English or another language, so it is 100% ${name}. Stay ` +
+    `warm and beginner-friendly.`;
 }
 export const langKey = (lang) => (LANG_NAME[lang] ? lang : 'en');
 
@@ -180,7 +198,7 @@ export const compareStocks = async (req, res) => {
 
     // Cache key: order-independent so AAPL:MSFT and MSFT:AAPL share a result.
     // ':v3' bump busts older answers cached before live-metrics + decision sections.
-    const key = 'compare:v3:' + [stockA.symbol, stockB.symbol].sort().join(':') + ':' + langKey(lang);
+    const key = 'compare:v4:' + [stockA.symbol, stockB.symbol].sort().join(':') + ':' + langKey(lang);
     const cached = await readCache(key);
     if (cached) return res.json({ success: true, cached: true, ...cached });
 
@@ -292,7 +310,7 @@ export const explainStock = async (req, res) => {
     // 24h cache, busted when the stock's data is refreshed. 'v2' busts old
     // answers that stalled with "not available" before the knowledge fallback.
     const stamp = stock.data_updated_at ? new Date(stock.data_updated_at).toISOString().slice(0, 13) : 'na';
-    const key = `explain:v2:${stock.symbol}:${langKey(lang)}:${stamp}`;
+    const key = `explain:v3:${stock.symbol}:${langKey(lang)}:${stamp}`;
     const cached = await readCache(key);
     if (cached) return res.json({ success: true, cached: true, ...cached });
 
@@ -546,7 +564,7 @@ export const scanNews = async (req, res) => {
     const displaySym = stock?.display_symbol || symbol.replace(/^NGX:/, '');
     const companyName = stock?.name || displaySym;
 
-    const key = 'news:v2:' + symbol + ':' + langKey(lang);
+    const key = 'news:v3:' + symbol + ':' + langKey(lang);
     const cached = await readCache(key);
     if (cached) return res.json({ success: true, cached: true, ...cached });
 
@@ -697,7 +715,7 @@ export const tutorChat = async (req, res) => {
     }
 
     const norm = question.toLowerCase().replace(/\s+/g, ' ').trim().slice(0, 200);
-    const key = 'tutor:' + (lessonId || 'gen') + ':' + langKey(lang) + ':' + crypto.createHash('sha1').update(norm).digest('hex').slice(0, 12);
+    const key = 'tutor:v2:' + (lessonId || 'gen') + ':' + langKey(lang) + ':' + crypto.createHash('sha1').update(norm).digest('hex').slice(0, 12);
     const cached = await readCache(key);
     if (cached) {
       // Flag cache hits so the rate limiter doesn't count them (no model call,
