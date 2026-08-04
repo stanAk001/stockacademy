@@ -22,18 +22,25 @@ const mockPrices = {
 
 // Trades must fill at the REAL market price. This used to fill from a hardcoded
 // mockPrices table (AAPL at $178 while the market said $333), so every position
-// and P&L in the simulator was wrong. Returns { price, name } or null.
+// and P&L in the simulator was wrong. Returns { price, name, currency } or null.
+// currency picks which practice wallet the trade settles against (₦ vs $).
 async function resolveTradePrice(sym) {
   const { rows } = await db.query(
-    `SELECT symbol, name, country FROM stocks
+    `SELECT symbol, name, country, currency FROM stocks
      WHERE UPPER(symbol) = $1 OR UPPER(display_symbol) = $1 LIMIT 1`,
     [sym]
   );
   const stock = rows[0];
   const quote = await getQuote(stock?.symbol || sym, stock?.country);
   if (!quote?.price) return null;
-  return { price: quote.price, name: stock?.name || sym };
+  const currency = quote.currency || stock?.currency || 'USD';
+  return { price: quote.price, name: stock?.name || sym, currency };
 }
+
+// A stock's currency decides its wallet. Whitelisted column names (never user
+// input) so we can safely interpolate them into the balance SQL.
+const walletColumn = (currency) => (currency === 'NGN' ? 'virtual_balance_ngn' : 'virtual_balance');
+const currencySymbol = (currency) => (currency === 'NGN' ? '₦' : '$');
 
 const jitter = (base) => {
   const pct = (Math.random() - 0.5) * 0.04;
@@ -288,17 +295,23 @@ export const buy = async (req, res) => {
     const mock = { name: fill.name };
     const price = fill.price;
     const total = +(price * shares).toFixed(2);
+    // NGX stocks settle against the ₦ wallet, US stocks against the $ wallet.
+    const wallet = walletColumn(fill.currency);
+    const sym$ = currencySymbol(fill.currency);
 
     await client.query('BEGIN');
 
-    const userRes = await client.query('SELECT virtual_balance FROM users WHERE id = $1 FOR UPDATE', [req.user.id]);
-    const balance = parseFloat(userRes.rows[0].virtual_balance);
+    const userRes = await client.query(`SELECT ${wallet} AS bal FROM users WHERE id = $1 FOR UPDATE`, [req.user.id]);
+    const balance = parseFloat(userRes.rows[0].bal);
     if (balance < total) {
       await client.query('ROLLBACK');
-      return res.status(400).json({ success: false, message: 'Insufficient virtual balance.' });
+      return res.status(400).json({
+        success: false,
+        message: `Not enough ${sym$} practice cash. This is your ${fill.currency === 'NGN' ? 'Naira' : 'US dollar'} wallet.`,
+      });
     }
 
-    await client.query('UPDATE users SET virtual_balance = virtual_balance - $1 WHERE id = $2', [total, req.user.id]);
+    await client.query(`UPDATE users SET ${wallet} = ${wallet} - $1 WHERE id = $2`, [total, req.user.id]);
 
     const existing = await client.query(
       'SELECT shares, avg_buy_price FROM portfolios WHERE user_id = $1 AND symbol = $2',
@@ -327,7 +340,7 @@ export const buy = async (req, res) => {
     );
 
     await client.query('COMMIT');
-    res.json({ success: true, message: `Bought ${shares} shares of ${s} at $${price}`, price, total });
+    res.json({ success: true, message: `Bought ${shares} shares of ${s} at ${sym$}${price}`, price, total, currency: fill.currency });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);
@@ -353,6 +366,9 @@ export const sell = async (req, res) => {
     const mock = { name: fill.name };
     const price = fill.price;
     const total = +(price * shares).toFixed(2);
+    // Proceeds return to the same-currency wallet the stock trades in.
+    const wallet = walletColumn(fill.currency);
+    const sym$ = currencySymbol(fill.currency);
 
     await client.query('BEGIN');
 
@@ -375,7 +391,7 @@ export const sell = async (req, res) => {
       );
     }
 
-    await client.query('UPDATE users SET virtual_balance = virtual_balance + $1 WHERE id = $2', [total, req.user.id]);
+    await client.query(`UPDATE users SET ${wallet} = ${wallet} + $1 WHERE id = $2`, [total, req.user.id]);
 
     await client.query(
       'INSERT INTO transactions (user_id, symbol, company_name, transaction_type, shares, price_per_share, total_amount) VALUES ($1, $2, $3, $4, $5, $6, $7)',
@@ -383,7 +399,7 @@ export const sell = async (req, res) => {
     );
 
     await client.query('COMMIT');
-    res.json({ success: true, message: `Sold ${shares} shares of ${s} at $${price}`, price, total });
+    res.json({ success: true, message: `Sold ${shares} shares of ${s} at ${sym$}${price}`, price, total, currency: fill.currency });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error(err);
@@ -395,14 +411,22 @@ export const sell = async (req, res) => {
 
 export const getPortfolio = async (req, res) => {
   try {
-    const { rows } = await db.query('SELECT * FROM portfolios WHERE user_id = $1', [req.user.id]);
+    // Join the stocks table so each position carries its real currency (₦ for NGX,
+    // $ for US) — the frontend was hardcoding $ on everything.
+    const { rows } = await db.query(
+      `SELECT p.*, s.currency, s.country
+       FROM portfolios p
+       LEFT JOIN stocks s ON UPPER(s.symbol) = UPPER(p.symbol) OR UPPER(s.display_symbol) = UPPER(p.symbol)
+       WHERE p.user_id = $1`,
+      [req.user.id]
+    );
 
     // Value holdings at the REAL current price (cached, so this is cheap). It
     // used to use a jittered mock, which made P&L drift randomly on refresh.
     // If a price genuinely isn't available, fall back to cost basis so the row
     // shows 0 P&L rather than an invented gain or loss.
     const prices = await Promise.all(
-      rows.map((p) => getQuote(p.symbol).catch(() => null))
+      rows.map((p) => getQuote(p.symbol, p.country).catch(() => null))
     );
 
     const enriched = rows.map((p, i) => {
@@ -411,23 +435,46 @@ export const getPortfolio = async (req, res) => {
       const costBasis = +(parseFloat(p.avg_buy_price) * parseFloat(p.shares)).toFixed(2);
       const pl = +(marketValue - costBasis).toFixed(2);
       const plPct = +((pl / costBasis) * 100).toFixed(2);
-      return { ...p, current_price: currentPrice, market_value: marketValue, cost_basis: costBasis, pl, pl_pct: plPct };
+      return { ...p, currency: p.currency || 'USD', current_price: currentPrice, market_value: marketValue, cost_basis: costBasis, pl, pl_pct: plPct };
     });
 
-    const balanceRes = await db.query('SELECT virtual_balance FROM users WHERE id = $1', [req.user.id]);
-    const balance = parseFloat(balanceRes.rows[0].virtual_balance);
-    const equityValue = enriched.reduce((sum, p) => sum + p.market_value, 0);
-    const totalValue = balance + equityValue;
-    const totalPL = enriched.reduce((sum, p) => sum + p.pl, 0);
+    const balanceRes = await db.query(
+      'SELECT virtual_balance, virtual_balance_ngn FROM users WHERE id = $1',
+      [req.user.id]
+    );
+    const usdCash = parseFloat(balanceRes.rows[0].virtual_balance);
+    const ngnCash = parseFloat(balanceRes.rows[0].virtual_balance_ngn ?? 0);
+
+    // Never sum ₦ and $ — each wallet is totalled in its own currency.
+    const walletFor = (cash, currency) => {
+      const held = enriched.filter((p) => (p.currency || 'USD') === currency);
+      const equity = +held.reduce((sum, p) => sum + p.market_value, 0).toFixed(2);
+      const pl = +held.reduce((sum, p) => sum + p.pl, 0).toFixed(2);
+      return {
+        currency,
+        balance: cash,
+        equity_value: equity,
+        total_value: +(cash + equity).toFixed(2),
+        total_pl: pl,
+        positions: held.length,
+      };
+    };
+
+    const wallets = {
+      USD: walletFor(usdCash, 'USD'),
+      NGN: walletFor(ngnCash, 'NGN'),
+    };
 
     res.json({
       success: true,
       portfolio: enriched,
+      wallets,
+      // Back-compat: `summary` mirrors the USD wallet for any older caller.
       summary: {
-        balance,
-        equity_value: equityValue,
-        total_value: totalValue,
-        total_pl: totalPL,
+        balance: wallets.USD.balance,
+        equity_value: wallets.USD.equity_value,
+        total_value: wallets.USD.total_value,
+        total_pl: wallets.USD.total_pl,
       },
     });
   } catch (err) {
@@ -438,8 +485,11 @@ export const getPortfolio = async (req, res) => {
 
 export const getTransactions = async (req, res) => {
   const { rows } = await db.query(
-    'SELECT * FROM transactions WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50',
+    `SELECT t.*, s.currency
+     FROM transactions t
+     LEFT JOIN stocks s ON UPPER(s.symbol) = UPPER(t.symbol) OR UPPER(s.display_symbol) = UPPER(t.symbol)
+     WHERE t.user_id = $1 ORDER BY t.created_at DESC LIMIT 50`,
     [req.user.id]
   );
-  res.json({ success: true, transactions: rows });
+  res.json({ success: true, transactions: rows.map((r) => ({ ...r, currency: r.currency || 'USD' })) });
 };

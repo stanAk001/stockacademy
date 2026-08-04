@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS users (
     is_verified BOOLEAN DEFAULT FALSE,
     bio TEXT,
     experience_level VARCHAR(20) DEFAULT 'beginner', -- beginner / intermediate / advanced
-    virtual_balance DECIMAL(15, 2) DEFAULT 100000.00, -- Paper-trading starting balance
+    virtual_balance DECIMAL(15, 2) DEFAULT 100000.00, -- US ($) paper-trading wallet
+    virtual_balance_ngn DECIMAL(15, 2) DEFAULT 10000000.00, -- NGX (₦) paper-trading wallet — separate currency, never mixed with USD
     total_xp INTEGER DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

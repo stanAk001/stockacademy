@@ -588,7 +588,8 @@ export const refreshUSStocks = async (req, res) => {
  *
  * Body: { confirm: "RESET" , scope?: "all" | number (single user id) }
  * ============================================ */
-const STARTING_BALANCE = 100000.00;
+const STARTING_BALANCE = 100000.00; // US ($) wallet
+const STARTING_BALANCE_NGN = 10000000.00; // NGX (₦) wallet
 
 export const resetSimulator = async (req, res) => {
   if (!requireAdmin(req, res)) return;
@@ -618,11 +619,11 @@ export const resetSimulator = async (req, res) => {
     if (singleUserId) {
       await client.query('DELETE FROM portfolios WHERE user_id = $1', [singleUserId]);
       await client.query('DELETE FROM transactions WHERE user_id = $1', [singleUserId]);
-      await client.query('UPDATE users SET virtual_balance = $1 WHERE id = $2', [STARTING_BALANCE, singleUserId]);
+      await client.query('UPDATE users SET virtual_balance = $1, virtual_balance_ngn = $2 WHERE id = $3', [STARTING_BALANCE, STARTING_BALANCE_NGN, singleUserId]);
     } else {
       await client.query('DELETE FROM portfolios');
       await client.query('DELETE FROM transactions');
-      await client.query('UPDATE users SET virtual_balance = $1', [STARTING_BALANCE]);
+      await client.query('UPDATE users SET virtual_balance = $1, virtual_balance_ngn = $2', [STARTING_BALANCE, STARTING_BALANCE_NGN]);
     }
 
     const usersRes = singleUserId
@@ -641,6 +642,7 @@ export const resetSimulator = async (req, res) => {
       trades_cleared: trades,
       users_reset: usersRes.rows[0].n,
       starting_balance: STARTING_BALANCE,
+      starting_balance_ngn: STARTING_BALANCE_NGN,
     });
   } catch (err) {
     await client.query('ROLLBACK');

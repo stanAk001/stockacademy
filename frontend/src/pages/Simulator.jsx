@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  TrendingUp, TrendingDown, Search, Wallet, PieChart as PieIcon,
+  TrendingUp, TrendingDown, Search,
   ShoppingCart, X, ArrowUp, ArrowDown, History, RefreshCcw
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -13,6 +13,11 @@ import StockAnalysisPanel from '../components/StockAnalysisPanel';
 import CandlestickChart from '../components/CandlestickChart';
 
 const POPULAR = ['AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX', 'DIS', 'KO', 'JPM', 'V'];
+
+// NGX stocks are priced in Naira, US stocks in dollars. Show each in its own
+// currency instead of slapping $ on everything.
+const ccy = (c) => (c === 'NGN' ? '₦' : '$');
+const money = (v, c) => (v == null ? '—' : `${ccy(c)}${Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 
 export default function Simulator() {
   const { user, refreshUser } = useAuth();
@@ -83,25 +88,20 @@ export default function Simulator() {
           </button>
         </div>
 
-        <div className="grid sm:grid-cols-3 gap-4 mb-6">
-          <BalanceCard
-            label="Cash"
-            value={portfolio?.summary?.balance ?? user?.virtual_balance ?? 0}
-            icon={Wallet}
-            color="bg-sun-300"
+        {/* Two separate practice wallets — ₦ for NGX, $ for US. Never mixed:
+            a Naira stock can only be bought with Naira cash, and vice-versa. */}
+        <div className="grid sm:grid-cols-2 gap-4 mb-6">
+          <WalletPanel
+            flag="🇺🇸"
+            label="US practice"
+            currency="USD"
+            wallet={portfolio?.wallets?.USD ?? { balance: user?.virtual_balance ?? 0, equity_value: 0, total_pl: 0 }}
           />
-          <BalanceCard
-            label="Equity"
-            value={portfolio?.summary?.equity_value ?? 0}
-            icon={PieIcon}
-            color="bg-bull-400"
-          />
-          <BalanceCard
-            label="Total P/L"
-            value={portfolio?.summary?.total_pl ?? 0}
-            icon={portfolio?.summary?.total_pl >= 0 ? TrendingUp : TrendingDown}
-            color={portfolio?.summary?.total_pl >= 0 ? 'bg-sage-400' : 'bg-coral-300'}
-            isPL
+          <WalletPanel
+            flag="🇳🇬"
+            label="NGX practice"
+            currency="NGN"
+            wallet={portfolio?.wallets?.NGN ?? { balance: 0, equity_value: 0, total_pl: 0 }}
           />
         </div>
 
@@ -138,7 +138,8 @@ export default function Simulator() {
               </div>
               <div className="space-y-1 max-h-[30rem] overflow-auto">
                 {filteredMarket.map((s) => {
-                  const up = s.change >= 0;
+                  const pct = s.changePercent;
+                  const up = pct != null && pct >= 0;
                   return (
                     <button
                       key={s.symbol}
@@ -152,9 +153,9 @@ export default function Simulator() {
                         <p className="text-xs opacity-60 truncate">{s.name}</p>
                       </div>
                       <div className="text-right shrink-0 ml-2">
-                        <p className="text-sm font-semibold font-mono">${s.price}</p>
-                        <p className={`text-xs font-semibold ${up ? 'text-bull-400' : 'text-bear-400'}`}>
-                          {up ? '+' : ''}{s.changePercent}%
+                        <p className="text-sm font-semibold font-mono">{money(s.price, s.currency)}</p>
+                        <p className={`text-xs font-semibold ${pct == null ? 'opacity-40' : up ? 'text-bull-400' : 'text-bear-400'}`}>
+                          {pct == null ? '—' : `${up ? '+' : ''}${Number(pct).toFixed(2)}%`}
                         </p>
                       </div>
                     </button>
@@ -167,18 +168,21 @@ export default function Simulator() {
               <div className="card-soft p-4 sm:p-6 min-w-0">
                 <div className="flex flex-wrap items-start justify-between gap-3 mb-5">
                   <div className="min-w-0">
-                    <p className="text-xs font-mono text-ink/40">NASDAQ</p>
+                    <p className="text-xs font-mono text-ink/40">{quote?.currency === 'NGN' ? '🇳🇬 NGX' : '🇺🇸 US'}</p>
                     <h2 className="font-display text-2xl sm:text-3xl font-black">{quote?.symbol}</h2>
                     <p className="text-sm text-ink/60 truncate">{quote?.name}</p>
                   </div>
                   <div className="text-right min-w-0">
                     <p className="font-display text-3xl sm:text-4xl font-black font-mono">
-                      ${quote?.price?.toFixed(2)}
+                      {money(quote?.price, quote?.currency)}
                     </p>
-                    <p className={`text-sm font-bold font-mono flex items-center justify-end gap-1 ${isUp ? 'text-bull-600' : 'text-bear-500'}`}>
-                      {isUp ? <ArrowUp size={14}/> : <ArrowDown size={14}/>}
-                      {quote?.change >= 0 ? '+' : ''}{quote?.change?.toFixed(2)} ({quote?.changePercent?.toFixed(2)}%)
-                    </p>
+                    {quote?.changePercent != null && (
+                      <p className={`text-sm font-bold font-mono flex items-center justify-end gap-1 ${isUp ? 'text-bull-600' : 'text-bear-500'}`}>
+                        {isUp ? <ArrowUp size={14}/> : <ArrowDown size={14}/>}
+                        {quote?.change != null ? `${quote.change >= 0 ? '+' : ''}${ccy(quote?.currency)}${Math.abs(quote.change).toFixed(2)} ` : ''}
+                        ({quote?.changePercent >= 0 ? '+' : ''}{quote.changePercent.toFixed(2)}%)
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -188,13 +192,13 @@ export default function Simulator() {
                   // While hovering the chart, the boxes mirror that point (O/H/L only
                   // exist in candle mode); otherwise they show the live quote.
                   const hl = hover && hover.open != null;
-                  const money = (v) => (v == null ? '—' : `$${Number(v).toFixed(2)}`);
+                  const c = quote?.currency;
                   return (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 text-sm">
-                      <Metric label="Open" value={money(hl ? hover.open : quote?.open)} />
-                      <Metric label="High" value={money(hl ? hover.high : quote?.high)} color="text-bull-600" />
-                      <Metric label="Low" value={money(hl ? hover.low : quote?.low)} color="text-bear-500" />
-                      <Metric label={hover ? 'Close' : 'Prev Close'} value={money(hover ? hover.close : quote?.prevClose)} />
+                      <Metric label="Open" value={money(hl ? hover.open : quote?.open, c)} />
+                      <Metric label="High" value={money(hl ? hover.high : quote?.high, c)} color="text-bull-600" />
+                      <Metric label="Low" value={money(hl ? hover.low : quote?.low, c)} color="text-bear-500" />
+                      <Metric label={hover ? 'Close' : 'Prev Close'} value={money(hover ? hover.close : quote?.prevClose, c)} />
                     </div>
                   );
                 })()}
@@ -207,30 +211,40 @@ export default function Simulator() {
                     <p className="text-xs font-black uppercase tracking-widest text-ink/50">Practice desk</p>
                     <p className="text-[11px] text-ink/45 mt-0.5">Trade {selected} with virtual cash. No real money, no risk.</p>
                   </div>
-                  {user?.virtual_balance != null && (
-                    <div className="text-right shrink-0">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40">Buying power</p>
-                      <p className="font-mono font-black text-bull-600">
-                        ${Number(user.virtual_balance).toLocaleString(undefined, { maximumFractionDigits: 0 })}
-                      </p>
-                    </div>
-                  )}
+                  {(() => {
+                    // Buying power follows the selected stock's currency — you can
+                    // only buy DANGCEM with ₦, AAPL with $.
+                    const c = quote?.currency || 'USD';
+                    const w = c === 'NGN' ? portfolio?.wallets?.NGN : portfolio?.wallets?.USD;
+                    const power = w?.balance ?? (c === 'NGN' ? 0 : user?.virtual_balance);
+                    if (power == null) return null;
+                    return (
+                      <div className="text-right shrink-0">
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40">
+                          Buying power {c === 'NGN' ? '🇳🇬' : '🇺🇸'}
+                        </p>
+                        <p className="font-mono font-black text-bull-600">
+                          {ccy(c)}{Number(power).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </p>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
                   <button
-                    onClick={() => setTradeModal({ side: 'BUY', symbol: selected, price: quote?.price })}
+                    onClick={() => setTradeModal({ side: 'BUY', symbol: selected, price: quote?.price, currency: quote?.currency })}
                     className="flex flex-col items-center justify-center gap-0.5 py-3 rounded-2xl bg-bull-600 hover:bg-bull-700 text-white transition"
                   >
                     <span className="flex items-center gap-1.5 font-black text-base"><TrendingUp size={17} /> Buy</span>
-                    {quote?.price != null && <span className="text-[11px] font-mono text-white/75">@ ${quote.price.toFixed(2)}</span>}
+                    {quote?.price != null && <span className="text-[11px] font-mono text-white/75">@ {money(quote.price, quote?.currency)}</span>}
                   </button>
                   <button
-                    onClick={() => setTradeModal({ side: 'SELL', symbol: selected, price: quote?.price })}
+                    onClick={() => setTradeModal({ side: 'SELL', symbol: selected, price: quote?.price, currency: quote?.currency })}
                     className="flex flex-col items-center justify-center gap-0.5 py-3 rounded-2xl bg-bear-500 hover:bg-bear-600 text-white transition"
                   >
                     <span className="flex items-center gap-1.5 font-black text-base"><TrendingDown size={17} /> Sell</span>
-                    {quote?.price != null && <span className="text-[11px] font-mono text-white/75">@ ${quote.price.toFixed(2)}</span>}
+                    {quote?.price != null && <span className="text-[11px] font-mono text-white/75">@ {money(quote.price, quote?.currency)}</span>}
                   </button>
                 </div>
 
@@ -299,16 +313,16 @@ export default function Simulator() {
                             <p className="text-xs text-ink/50 truncate max-w-[10rem]">{p.company_name}</p>
                           </td>
                           <td className="py-3 px-3 font-mono">{parseFloat(p.shares).toFixed(2)}</td>
-                          <td className="py-3 px-3 font-mono hidden sm:table-cell">${parseFloat(p.avg_buy_price).toFixed(2)}</td>
-                          <td className="py-3 px-3 font-mono">${p.current_price.toFixed(2)}</td>
-                          <td className="py-3 px-3 font-mono hidden md:table-cell">${p.market_value.toFixed(2)}</td>
+                          <td className="py-3 px-3 font-mono hidden sm:table-cell">{money(p.avg_buy_price, p.currency)}</td>
+                          <td className="py-3 px-3 font-mono">{money(p.current_price, p.currency)}</td>
+                          <td className="py-3 px-3 font-mono hidden md:table-cell">{money(p.market_value, p.currency)}</td>
                           <td className={`py-3 px-3 font-mono font-bold ${up ? 'text-bull-600' : 'text-bear-500'}`}>
-                            {up ? '+' : ''}${p.pl.toFixed(2)}
+                            {up ? '+' : ''}{ccy(p.currency)}{Math.abs(p.pl).toFixed(2)}
                             <span className="block text-xs font-normal">({p.pl_pct}%)</span>
                           </td>
                           <td className="py-3 pl-3 text-right">
                             <button
-                              onClick={() => { setSelected(p.symbol); setTradeModal({ side: 'SELL', symbol: p.symbol, price: p.current_price, maxShares: parseFloat(p.shares) }); }}
+                              onClick={() => { setSelected(p.symbol); setTradeModal({ side: 'SELL', symbol: p.symbol, price: p.current_price, currency: p.currency, maxShares: parseFloat(p.shares) }); }}
                               className="px-3 py-1 rounded-full bg-bear-500 text-white text-xs font-bold hover:bg-bear-600"
                             >
                               Sell
@@ -348,12 +362,12 @@ export default function Simulator() {
                       <div>
                         <p className="font-bold font-mono">{t.symbol} · {t.transaction_type}</p>
                         <p className="text-xs text-ink/50">
-                          {parseFloat(t.shares).toFixed(2)} shares @ ${parseFloat(t.price_per_share).toFixed(2)}
+                          {parseFloat(t.shares).toFixed(2)} shares @ {money(t.price_per_share, t.currency)}
                         </p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-mono font-bold">${parseFloat(t.total_amount).toFixed(2)}</p>
+                      <p className="font-mono font-bold">{money(t.total_amount, t.currency)}</p>
                       <p className="text-xs text-ink/50">{new Date(t.created_at).toLocaleDateString()}</p>
                     </div>
                   </div>
@@ -374,7 +388,11 @@ export default function Simulator() {
         {tradeModal && (
           <TradeModal
             {...tradeModal}
-            balance={portfolio?.summary?.balance ?? user?.virtual_balance ?? 0}
+            balance={
+              (tradeModal.currency === 'NGN'
+                ? portfolio?.wallets?.NGN?.balance
+                : portfolio?.wallets?.USD?.balance) ?? user?.virtual_balance ?? 0
+            }
             onClose={() => setTradeModal(null)}
             onConfirm={doTrade}
           />
@@ -384,22 +402,36 @@ export default function Simulator() {
   );
 }
 
-function BalanceCard({ label, value, icon: Icon, color, isPL }) {
-  const positive = value >= 0;
-  const displayValue = isPL
-    ? `${positive ? '+' : '-'}$${Math.abs(Number(value)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-    : `$${Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+// One practice wallet, shown in its own currency. Cash + Holdings + P/L, never
+// added to the other wallet — ₦ and $ stay apart.
+function WalletPanel({ flag, label, currency, wallet }) {
+  const cash = wallet?.balance ?? 0;
+  const equity = wallet?.equity_value ?? 0;
+  const pl = wallet?.total_pl ?? 0;
+  const plUp = pl >= 0;
+  const fmt = (v) => Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return (
     <div className="card-soft p-5">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-ink/60">{label}</span>
-        <div className={`w-9 h-9 ${color} rounded-xl grid place-items-center`}>
-          <Icon size={16} className="text-ink" strokeWidth={2.4} />
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-sm font-black uppercase tracking-widest text-ink/60">{flag} {label}</span>
+        <span className="text-[11px] font-mono font-bold text-ink/35">{ccy(currency)} · {currency}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40 mb-0.5">Cash</p>
+          <p className="font-mono font-black text-sm sm:text-base">{money(cash, currency)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40 mb-0.5">Holdings</p>
+          <p className="font-mono font-black text-sm sm:text-base">{money(equity, currency)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-ink/40 mb-0.5">P/L</p>
+          <p className={`font-mono font-black text-sm sm:text-base ${plUp ? 'text-bull-600' : 'text-bear-500'}`}>
+            {plUp ? '+' : '-'}{ccy(currency)}{fmt(Math.abs(pl))}
+          </p>
         </div>
       </div>
-      <p className={`font-display text-3xl font-black font-mono ${isPL ? (positive ? 'text-bull-600' : 'text-bear-500') : ''}`}>
-        {displayValue}
-      </p>
     </div>
   );
 }
@@ -413,7 +445,7 @@ function Metric({ label, value, color = '' }) {
   );
 }
 
-function TradeModal({ side, symbol, price, maxShares, balance, onClose, onConfirm }) {
+function TradeModal({ side, symbol, price, currency, maxShares, balance, onClose, onConfirm }) {
   const [shares, setShares] = useState(1);
   const total = (shares * price).toFixed(2);
   const insufficient = side === 'BUY' && total > balance;
@@ -439,7 +471,7 @@ function TradeModal({ side, symbol, price, maxShares, balance, onClose, onConfir
                 {side === 'BUY' ? 'Buy order' : 'Sell order'}
               </p>
               <h2 className="font-display text-3xl font-black">{symbol}</h2>
-              <p className="text-sm opacity-80 font-mono">${price?.toFixed(2)} / share</p>
+              <p className="text-sm opacity-80 font-mono">{money(price, currency)} / share</p>
             </div>
             <button onClick={onClose} className="p-2 hover:bg-cream/10 rounded-full">
               <X size={18} />
@@ -466,9 +498,9 @@ function TradeModal({ side, symbol, price, maxShares, balance, onClose, onConfir
           </div>
 
           <div className="p-4 bg-cream-warm rounded-2xl space-y-2 text-sm">
-            <Row label="Estimated total" value={`$${total}`} bold />
-            {side === 'BUY' && <Row label="Available cash" value={`$${Number(balance).toFixed(2)}`} />}
-            {side === 'BUY' && <Row label="After trade" value={`$${(balance - total).toFixed(2)}`} color={insufficient ? 'text-bear-500' : ''} />}
+            <Row label="Estimated total" value={money(total, currency)} bold />
+            {side === 'BUY' && <Row label="Available cash" value={money(balance, currency)} />}
+            {side === 'BUY' && <Row label="After trade" value={money(balance - total, currency)} color={insufficient ? 'text-bear-500' : ''} />}
           </div>
 
           {insufficient && (
