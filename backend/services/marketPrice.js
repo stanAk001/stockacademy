@@ -267,7 +267,7 @@ export async function getQuoteAndPersist(symbol, country) {
  * paid Starter plan). It returns daily closes back to 2017, so returns,
  * volatility and drawdown can be COMPUTED from real trades instead of guessed.
  * ------------------------------------------------------------------ */
-async function fetchNgxHistory(displaySymbol, days = 400) {
+export async function fetchNgxHistory(displaySymbol, days = 400) {
   if (!NGX_KEY) return null;
   try {
     const { data } = await axios.get(`${NGX_BASE}/prices/${encodeURIComponent(displaySymbol)}`, {
@@ -415,3 +415,10 @@ export async function refreshAllNgxPrices() {
 }
 
 export const isNgxConfigured = () => Boolean(NGX_KEY);
+
+/**
+ * The whole NGX board as a Map(SYMBOL → quote), straight from the cached feed.
+ * Exposed so the listings importer can read every symbol the exchange returns,
+ * not just the ones we already store. Null when NGX isn't configured/reachable.
+ */
+export const ngxBoard = () => loadNgxAll();

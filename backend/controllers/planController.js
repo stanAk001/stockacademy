@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import axios from 'axios';
 import db from '../config/db.js';
 import { notifyNewPremium } from '../services/telegramService.js';
+import { logEvent } from '../services/analytics.js';
 
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_BASE = 'https://api.paystack.co';
@@ -212,22 +213,34 @@ export const paystackWebhook = async (req, res) => {
 };
 
 async function activatePremium(userId, reference, paystackRef) {
-  const expires = new Date();
-  expires.setMonth(expires.getMonth() + 1);
-
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
-    await client.query(
+    // Idempotent: /verify and the webhook can both arrive for one payment. Only
+    // the call that actually flips it to paid adds time, so it's never doubled.
+    const up = await client.query(
       `UPDATE plan_upgrades SET status='paid', paid_at=NOW(), paystack_reference=$1
-       WHERE reference=$2`,
+       WHERE reference=$2 AND status IS DISTINCT FROM 'paid'
+       RETURNING id`,
       [paystackRef, reference]
     );
+    if (!up.rows.length) { await client.query('ROLLBACK'); return; }
+
+    // Renewing early stacks: the new month starts when the current one ends.
+    const cur = await client.query(
+      'SELECT COALESCE(plan_renews_at, plan_expires_at) AS ends FROM users WHERE id = $1 FOR UPDATE',
+      [userId]
+    );
+    const ends = cur.rows[0]?.ends ? new Date(cur.rows[0].ends) : null;
+    const expires = ends && ends > new Date() ? new Date(ends) : new Date();
+    expires.setMonth(expires.getMonth() + 1);
+
     await client.query(
-      `UPDATE users SET plan='premium', plan_started_at=NOW(), plan_expires_at=$1 WHERE id=$2`,
+      `UPDATE users SET plan='premium', plan_started_at=NOW(), plan_expires_at=$1, plan_renews_at=$1 WHERE id=$2`,
       [expires, userId]
     );
     await client.query('COMMIT');
+    logEvent(userId, 'subscription_started', { source: 'paystack_plan' });
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;
@@ -242,7 +255,7 @@ async function activatePremium(userId, reference, paystackRef) {
 export const cancelPremium = async (req, res) => {
   try {
     await db.query(
-      `UPDATE users SET plan = 'free', plan_expires_at = NULL WHERE id = $1`,
+      `UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_renews_at = NULL WHERE id = $1`,
       [req.user.id]
     );
     res.json({ success: true, message: 'Downgraded to free plan.' });

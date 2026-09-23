@@ -16,12 +16,15 @@ const pool = new Pool({
     : { rejectUnauthorized: false },
 
   // Pool sizing is env-tunable so you can lift it with your DB plan. Keep it at
-  // or below your Postgres connection limit (Render's free tier is small).
-  max: Number(process.env.DB_POOL_MAX) || 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 15000, // remote DBs (Render) over SSL can be slow to connect
-  keepAlive: true,                 // avoid idle-connection resets under load
-  statement_timeout: 20000,        // kill a runaway query instead of letting it hog a connection
+  // or BELOW your Postgres connection limit — Render's free tier is small, and
+  // if a LOCAL dev server points at the same prod DB as the deployed app, the
+  // two pools share that limit. 10 leaves headroom; set DB_POOL_MAX=5 locally
+  // when running against the prod DB to be safe.
+  max: Number(process.env.DB_POOL_MAX) || 10,
+  idleTimeoutMillis: 10000,          // release idle clients sooner → free up slots
+  connectionTimeoutMillis: 30000,    // remote DBs (Render) over SSL can be slow to connect
+  keepAlive: true,                   // avoid idle-connection resets under load
+  statement_timeout: 30000,          // kill a runaway query instead of hogging a connection
 });
 
 pool.on('connect', () => {

@@ -19,7 +19,7 @@ export async function notify({ recipientId, actorId = null, type, postId = null,
 export const listNotifications = async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT n.id, n.type, n.is_read, n.created_at, n.post_id, n.comment_id, n.message,
+      `SELECT n.*,
               u.username AS actor_username, u.avatar_url AS actor_avatar, u.plan AS actor_plan,
               p.title AS post_title
        FROM notifications n
@@ -38,6 +38,58 @@ export const listNotifications = async (req, res) => {
   } catch (err) {
     console.error('listNotifications error:', err);
     res.status(500).json({ success: false, message: 'Failed to load notifications' });
+  }
+};
+
+// The categories a user can tune, and the default channel matrix. Absence of a
+// row means defaults (opt-out model), so we merge stored rows over these.
+const CATEGORIES = ['trading', 'ai', 'portfolio', 'market', 'news', 'product'];
+const DEFAULTS = { in_app: true, push: true, telegram: true, email: false };
+
+// GET /api/notifications/preferences — the per-category channel matrix.
+export const getPreferences = async (req, res) => {
+  try {
+    let stored = {};
+    try {
+      const { rows } = await db.query(
+        'SELECT category, in_app, push, telegram, email FROM notification_preferences WHERE user_id = $1',
+        [req.user.id]
+      );
+      stored = Object.fromEntries(rows.map((r) => [r.category, r]));
+    } catch { /* table not migrated yet → all defaults */ }
+
+    const preferences = CATEGORIES.map((category) => ({
+      category,
+      ...DEFAULTS,
+      ...(stored[category] || {}),
+    }));
+    res.json({ success: true, preferences });
+  } catch (err) {
+    console.error('getPreferences error:', err);
+    res.status(500).json({ success: false, message: 'Failed to load preferences' });
+  }
+};
+
+// PUT /api/notifications/preferences — upsert one category's channels.
+export const updatePreferences = async (req, res) => {
+  try {
+    const { category, in_app, push, telegram, email } = req.body || {};
+    if (!CATEGORIES.includes(category)) {
+      return res.status(400).json({ success: false, message: 'Unknown category.' });
+    }
+    const b = (v, d) => (typeof v === 'boolean' ? v : d);
+    await db.query(
+      `INSERT INTO notification_preferences (user_id, category, in_app, push, telegram, email, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())
+       ON CONFLICT (user_id, category) DO UPDATE
+         SET in_app = EXCLUDED.in_app, push = EXCLUDED.push, telegram = EXCLUDED.telegram,
+             email = EXCLUDED.email, updated_at = NOW()`,
+      [req.user.id, category, b(in_app, true), b(push, true), b(telegram, true), b(email, false)]
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('updatePreferences error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to save preference' });
   }
 };
 

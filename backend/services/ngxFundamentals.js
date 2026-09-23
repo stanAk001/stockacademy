@@ -1,12 +1,12 @@
 // ============================================================
-// ngxFundamentals.js — reference fundamentals for NGX stocks via Claude.
+// ngxFundamentals.js — reference fundamentals for NGX stocks via the AI.
 //
 // The NGX has no free live fundamentals feed (Finnhub/Yahoo don't cover it), so
-// the discovery rankings for Nigeria come up empty. This asks Claude for the
+// the discovery rankings for Nigeria come up empty. This asks the AI for the
 // STABLE, published per-share figures (shares outstanding, EPS, dividend/share,
 // sector) and then computes market cap / P/E / dividend yield against OUR real
 // stored price — so the ratios lean on a real number, not a guess. A rough
-// 1-year price return is included too (Claude's weakest field; the UI labels all
+// 1-year price return is included too (the AI's weakest field; the UI labels all
 // NGX values as reference estimates). Re-runnable from the admin panel.
 // ============================================================
 import db from '../config/db.js';

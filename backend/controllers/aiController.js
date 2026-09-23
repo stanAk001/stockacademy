@@ -1,5 +1,5 @@
 // ============================================================
-// aiController.js — Premium AI features (Anthropic Claude)
+// aiController.js — Premium AI features (OpenAI)
 //   • POST /api/ai/compare-stocks    — side-by-side analysis of two tickers
 //   • POST /api/ai/analyze-portfolio — review of the user's simulator holdings
 //   • POST /api/ai/scan-news         — filter 30 days of news down to what matters
@@ -14,10 +14,12 @@ import db from '../config/db.js';
 import { analyzeWithAI, parseJsonFromAI } from '../services/aiProvider.js';
 import { broadcastToPremium } from '../services/telegramService.js';
 import { refreshFundamentals } from './stockController.js';
+import { consumeEntitlement } from '../middleware/entitlement.js';
+import { logEvent } from '../services/analytics.js';
 
 const FINNHUB_API_KEY = process.env.FINNHUB_API_KEY || '';
 
-const DISCLAIMER =
+export const DISCLAIMER =
   'This is educational analysis, not financial advice. Not a buy/sell recommendation.';
 
 // Shared "how to talk" rules for every premium AI tool. This is the platform's
@@ -25,7 +27,7 @@ const DISCLAIMER =
 // decisive steer (not fence-sitting), and honest confidence. It deliberately
 // stops short of financial advice — it FRAMES the decision so the reader can make
 // it, instead of issuing a buy/sell instruction.
-const MENTOR_VOICE =
+export const MENTOR_VOICE =
   `You are a sharp, warm mentor talking to a smart beginner who has money to invest but knows NONE of the ` +
   `finance jargon. HOW YOU MUST WRITE (this matters as much as what you say): ` +
   `(1) Plain, everyday words a 12-year-old could follow. The FIRST time you use any finance term (P/E, ` +
@@ -42,7 +44,7 @@ const MENTOR_VOICE =
   `one question that settles it — then hand the final call to the reader. `;
 
 // ---------- Nigerian-language AI output ----------
-// Append a directive so Claude answers in the user's chosen language, and a
+// Append a directive so the AI answers in the user's chosen language, and a
 // short code for the cache key (so each language caches separately).
 const LANG_NAME = { pcm: 'Nigerian Pidgin English', yo: 'Yorùbá', ha: 'Hausa', ig: 'Igbo' };
 
@@ -301,6 +303,8 @@ export const compareStocks = async (req, res) => {
 
     await logUsage(req.user.id, 'compare_stocks', result);
     await writeCache(key, payload, 24);
+    await consumeEntitlement(req);
+    logEvent(req.user.id, 'comparison_used', { a: richA.symbol, b: richB.symbol });
 
     res.json({ success: true, cached: false, ...payload });
   } catch (err) {
@@ -391,6 +395,8 @@ export const explainStock = async (req, res) => {
 
     await logUsage(req.user.id, 'explain_stock', result);
     await writeCache(key, payload, 24);
+    await consumeEntitlement(req);
+    logEvent(req.user.id, 'analysis_used', { symbol: stock.symbol });
 
     res.json({ success: true, cached: false, ...payload });
   } catch (err) {
@@ -538,7 +544,8 @@ function parseRssItems(xml) {
 }
 
 // US company news from Finnhub → normalized items.
-async function fetchFinnhubNews(symbol, fromTs) {
+// Exported: the background news monitor reuses these fetchers.
+export async function fetchFinnhubNews(symbol, fromTs) {
   const from = new Date(fromTs).toISOString().split('T')[0];
   const to = new Date().toISOString().split('T')[0];
   const { data } = await axios.get('https://finnhub.io/api/v1/company-news', {
@@ -556,7 +563,7 @@ async function fetchFinnhubNews(symbol, fromTs) {
 }
 
 // Free Google News RSS → normalized items. region 'NG' localises to Nigeria.
-async function fetchGoogleNews(companyName, region, fromTs) {
+export async function fetchGoogleNews(companyName, region, fromTs) {
   const ngx = region === 'NG';
   const q = `${companyName} ${ngx ? 'NGX stock' : 'stock'}`;
   const loc = ngx ? 'hl=en-NG&gl=NG&ceid=NG:en' : 'hl=en-US&gl=US&ceid=US:en';
@@ -696,6 +703,8 @@ export const scanNews = async (req, res) => {
 
     await logUsage(req.user.id, 'scan_news', result);
     await writeCache(key, payload, 12);
+    await consumeEntitlement(req);
+    logEvent(req.user.id, 'news_scan_used', { symbol });
 
     res.json({ success: true, cached: false, ...payload });
   } catch (err) {
@@ -880,7 +889,7 @@ export const sendDigestNow = async (req, res) => {
   try {
     const r = await generateAndBroadcastDigest({ force: true });
     if (!r.ok) {
-      return res.status(502).json({ success: false, message: 'Could not generate the digest (check ANTHROPIC_API_KEY).' });
+      return res.status(502).json({ success: false, message: 'Could not generate the digest (check OPENAI_API_KEY).' });
     }
     res.json({ success: true, ...r });
   } catch (err) {

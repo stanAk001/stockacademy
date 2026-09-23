@@ -10,6 +10,7 @@ import Layout from '../components/Layout';
 import StockSearch from '../components/StockSearch';
 import TickerTape from '../components/TickerTape';
 import PremiumTools from '../components/PremiumTools';
+import AlertGate from '../components/AlertGate';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { MARKET_QUOTES, todaysQuoteIndex } from '../lib/marketQuotes';
@@ -55,6 +56,7 @@ export default function Dashboard() {
       <TickerTape />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <AlertGate />
         {/* Greeting */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -77,7 +79,7 @@ export default function Dashboard() {
         </motion.div>
 
         {/* Stats row */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-5 sm:mb-8">
           <StatCard
             icon={Zap}
             label="Total XP"
@@ -264,16 +266,23 @@ function StatCard({ icon: Icon, label, value, accent, note }) {
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="card-soft p-5"
+      className="card-soft p-2.5 sm:p-3.5 rounded-2xl"
     >
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-xs font-semibold uppercase tracking-wider text-ink/60">{label}</span>
-        <div className={`w-9 h-9 ${accent} rounded-xl grid place-items-center`}>
-          <Icon size={16} className="text-ink" strokeWidth={2.4} />
+      {/* Two lines, not three: the number and its note share a baseline, which
+          is what keeps the card short at every width. */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-[8.5px] sm:text-[10px] font-bold uppercase tracking-wider text-ink/45 truncate">{label}</p>
+          {/* wraps instead of truncating when a long value + note won't fit */}
+          <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 min-w-0 mt-0.5">
+            <p className="font-display text-[17px] sm:text-[22px] font-black leading-none">{value}</p>
+            <p className="text-[9px] sm:text-[11px] text-ink/40 leading-tight">{note}</p>
+          </div>
+        </div>
+        <div className={`w-6 h-6 sm:w-8 sm:h-8 ${accent} rounded-lg grid place-items-center shrink-0`}>
+          <Icon className="w-[12px] h-[12px] sm:w-[15px] sm:h-[15px] text-ink" strokeWidth={2.4} />
         </div>
       </div>
-      <p className="font-display text-3xl font-black leading-none">{value}</p>
-      <p className="text-xs text-ink/50 mt-2">{note}</p>
     </motion.div>
   );
 }

@@ -45,3 +45,18 @@ desktop.ini
 # Database
 *.sql.bak
 *.dump
+
+# Database dumps / backups — NEVER commit real data (a public repo exposes it)
+/*.sql
+*_export.sql
+*.sql.gz
+*.backup
+backups/
+
+# Keys and credentials
+*.key
+*.p12
+*.pfx
+id_rsa*
+service-account*.json
+credentials*.json

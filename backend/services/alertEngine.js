@@ -1,6 +1,7 @@
 import db from '../config/db.js';
 import { notify } from '../controllers/notificationsController.js';
 import { sendToUser } from './telegramService.js';
+import { sendPush } from './pushService.js';
 import { sendEmail, priceAlertEmail } from './emailService.js';
 
 // Checks every active (untriggered) price alert against the latest known price
@@ -50,6 +51,13 @@ export async function checkPriceAlerts() {
         type: 'price_alert',
         message: `🎯 ${label} ${verb} ${sym}${price} — your ${a.direction} ${sym}${target} alert hit.`,
       });
+
+      // Web push (best-effort; no-op if the user has no subscription / push off).
+      sendPush(a.user_id, {
+        title: 'Price alert hit',
+        body: `${label} ${verb} ${sym}${price} (target ${a.direction} ${sym}${target}).`,
+        url: '/alerts',
+      }).catch(() => {});
 
       // Off-site delivery: Telegram if they've linked it, otherwise email.
       if (a.telegram_chat_id) {

@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import axios from 'axios';
 import db from '../config/db.js';
 import { notifyNewPremium } from '../services/telegramService.js';
+import { logEvent } from '../services/analytics.js';
 
 const FLW_SECRET = process.env.FLUTTERWAVE_SECRET_KEY || '';
 const FLW_WEBHOOK_HASH = process.env.FLUTTERWAVE_WEBHOOK_HASH || '';
@@ -210,22 +211,34 @@ export const flutterwaveWebhook = async (req, res) => {
 // Exported so the single Flutterwave webhook router can reuse the exact same
 // grant path (one webhook URL per account — see flutterwaveWebhookController).
 export async function activatePremiumViaFlutterwave(userId, reference, flwTxId) {
-  const expires = new Date();
-  expires.setMonth(expires.getMonth() + 1);
-
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
-    await client.query(
+    // Idempotent: /verify and the webhook can both arrive for one payment. Only
+    // the call that actually flips it to paid adds time, so it's never doubled.
+    const up = await client.query(
       `UPDATE plan_upgrades SET status='paid', paid_at=NOW(), paystack_reference=$1
-       WHERE reference=$2`,
+       WHERE reference=$2 AND status IS DISTINCT FROM 'paid'
+       RETURNING id`,
       [flwTxId, reference]
     );
+    if (!up.rows.length) { await client.query('ROLLBACK'); return; }
+
+    // Renewing early stacks: the new month starts when the current one ends.
+    const cur = await client.query(
+      'SELECT COALESCE(plan_renews_at, plan_expires_at) AS ends FROM users WHERE id = $1 FOR UPDATE',
+      [userId]
+    );
+    const ends = cur.rows[0]?.ends ? new Date(cur.rows[0].ends) : null;
+    const expires = ends && ends > new Date() ? new Date(ends) : new Date();
+    expires.setMonth(expires.getMonth() + 1);
+
     await client.query(
-      `UPDATE users SET plan='premium', plan_started_at=NOW(), plan_expires_at=$1 WHERE id=$2`,
+      `UPDATE users SET plan='premium', plan_started_at=NOW(), plan_expires_at=$1, plan_renews_at=$1 WHERE id=$2`,
       [expires, userId]
     );
     await client.query('COMMIT');
+    logEvent(userId, 'subscription_started', { source: 'flutterwave' });
   } catch (e) {
     await client.query('ROLLBACK');
     throw e;

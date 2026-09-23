@@ -5,6 +5,8 @@ import { broadcastTelegram } from '../controllers/telegramController.js';
 import { listReviews, respondReview } from '../controllers/portfolioReviewController.js';
 import { getAiUsageStats, sendDigestNow } from '../controllers/aiController.js';
 import { adminGenerateRecap } from '../controllers/insightsController.js';
+import { sendBroadcast, listBroadcasts } from '../controllers/broadcastController.js';
+import { getFunnel } from '../controllers/analyticsController.js';
 
 const router = express.Router();
 router.use(authenticate);
@@ -39,12 +41,17 @@ router.post('/stocks/bulk-prices', admin.bulkUpdatePrices);
 // Premium Telegram broadcast (admin only — checked in the controller)
 router.post('/broadcast-telegram', broadcastTelegram);
 
+// Multi-channel broadcast (in-app / push / Telegram) + history (admin-gated)
+router.post('/broadcast', sendBroadcast);
+router.get('/broadcasts', listBroadcasts);
+
 // Personal portfolio reviews (admin only — checked in the controllers)
 router.get('/portfolio-reviews', listReviews);
 router.post('/portfolio-reviews/:id/respond', respondReview);
 
 // AI spend monitoring (admin only — checked in the controller)
 router.get('/ai-usage', getAiUsageStats);
+router.get('/analytics/funnel', getFunnel); // admin check inside the controller
 
 // Manually generate + broadcast the weekly digest now (admin only)
 router.post('/send-digest', sendDigestNow);

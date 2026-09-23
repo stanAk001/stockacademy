@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Bell, Plus, X, Trash2, Sparkles, ArrowUp, ArrowDown, Smartphone } from 'lucide-react';
+import { Bell, Plus, X, Trash2, Sparkles, ArrowUp, ArrowDown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Layout from '../components/Layout';
+import AlertGate from '../components/AlertGate';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -76,17 +77,8 @@ export default function Alerts() {
           </div>
         </div>
 
-        {/* Phone delivery nudge */}
-        <div className="card-soft p-4 mb-6 flex items-start gap-3 bg-cream-warm">
-          <div className="w-9 h-9 rounded-xl bg-ink text-sun-300 grid place-items-center shrink-0">
-            <Smartphone size={17} />
-          </div>
-          <p className="text-sm text-ink/70 leading-relaxed">
-            <strong className="text-ink">Get alerts on your phone.</strong> They already land in your
-            notifications here — <Link to="/profile" className="font-semibold text-bull-600 hover:underline">link Telegram in your profile</Link>{' '}
-            and we'll DM you the instant a target hits, even when you're offline.
-          </p>
-        </div>
+        {/* Can an alert actually reach them? Asks, or explains how to unblock. */}
+        <AlertGate what="your price alerts" />
 
         {loading ? (
           <div className="space-y-3">

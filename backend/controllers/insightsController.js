@@ -13,6 +13,8 @@ import { CANONICAL_URL } from '../config/appUrl.js';
 import { analyzeWithAI, parseJsonFromAI } from '../services/aiProvider.js';
 import { refreshUsSnapshots } from '../services/marketSnapshot.js';
 import { refreshAllNgxPrices } from '../services/marketPrice.js';
+import { importNgxListings } from '../services/ngxImporter.js';
+import { refreshTechnicals } from '../services/technicalsUpdater.js';
 
 const SITE = 'StockAcademia';
 const DISCLAIMER = 'Educational analysis only — not financial advice. Investment decisions are yours to make.';
@@ -168,7 +170,7 @@ export const adminGenerateRecap = async (req, res) => {
   // Top up live US prices first so "top movers" is fresh, then write today's recap.
   await refreshUsSnapshots().catch((e) => console.warn('recap snapshot refresh failed:', e.message));
   const r = await generateDailyRecap({ force: true });
-  if (!r.ok) return res.status(502).json({ success: false, message: `Could not generate (${r.error}). Check ANTHROPIC_API_KEY + credit.` });
+  if (!r.ok) return res.status(502).json({ success: false, message: `Could not generate (${r.error}). Check OPENAI_API_KEY + credit.` });
   res.json({ success: true, ...r });
 };
 
@@ -187,10 +189,18 @@ export const cronDailyRecap = async (req, res) => {
   }
   try {
     const snapshot = await refreshUsSnapshots().catch((e) => ({ ok: false, error: e.message }));
+    // Pick up any newly listed NGX company first, so it gets priced in the same
+    // run instead of waiting a day.
+    const listings = await importNgxListings().catch((e) => ({ ok: false, error: e.message }));
     // One NGX Pulse call refreshes every NGX price we track.
     const ngx = await refreshAllNgxPrices().catch((e) => ({ ok: false, error: e.message }));
     const recap = await generateDailyRecap({ force: Boolean(req.query.force) });
-    return res.json({ success: recap.ok !== false, snapshot, ngx, recap });
+    // Refresh technicals in the background — US only (NGX daily history needs the
+    // NGX Pulse Starter plan). Fetches one symbol at a time, so we never wait on it.
+    refreshTechnicals({ country: 'US' })
+      .then((r) => console.log('[cron] Technicals (external):', JSON.stringify({ updated: r.updated, total: r.total })))
+      .catch((e) => console.warn('[cron] Technicals (external):', e.message));
+    return res.json({ success: recap.ok !== false, snapshot, listings, ngx, recap, technicals: 'started' });
   } catch (err) {
     console.error('cronDailyRecap error:', err);
     return res.status(500).json({ success: false, message: 'Daily pipeline failed' });

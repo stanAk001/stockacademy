@@ -1,0 +1,65 @@
+# StockAcademia scheduled jobs (spec §29).
+#
+# Render's free tier sleeps, so the backend's own node-cron schedules never
+# fire while it's asleep. This workflow wakes the API on a schedule and runs
+# each background job through its CRON_SECRET-protected endpoint.
+#
+# Setup (GitHub → repo → Settings → Secrets and variables → Actions):
+#   API_BASE_URL  your API base, including /api
+#                 currently https://stockacademy-2.onrender.com/api
+#   CRON_SECRET   the same value as CRON_SECRET in the Render environment
+#
+# Times are UTC. Lagos is UTC+1 all year (no daylight saving).
+# Run one by hand: Actions → "StockAcademia scheduled jobs" → Run workflow.
+
+name: StockAcademia scheduled jobs
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # monitor: setups, positions, watchlists
+    - cron: '0 */3 * * *'    # news: company news for followed stocks
+    - cron: '15 5 * * *'     # daily: prices, technicals, market recap (06:15 Lagos)
+    - cron: '30 6 * * *'     # briefing: thesis check + daily briefing alert (07:30 Lagos)
+  workflow_dispatch:
+    inputs:
+      job:
+        description: Which job to run
+        required: true
+        default: monitor
+        type: choice
+        options: [monitor, news, daily, briefing]
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Pick the endpoint
+        id: pick
+        run: |
+          case "${{ github.event.schedule }}" in
+            '*/30 * * * *') JOB=monitor ;;
+            '0 */3 * * *')  JOB=news ;;
+            '15 5 * * *')   JOB=daily ;;
+            '30 6 * * *')   JOB=briefing ;;
+            *)              JOB='${{ inputs.job }}' ;;
+          esac
+          if [ "$JOB" = "daily" ]; then ENDPOINT=/insights/cron/daily; else ENDPOINT="/cron/$JOB"; fi
+          echo "Running job: $JOB ($ENDPOINT)"
+          echo "endpoint=$ENDPOINT" >> "$GITHUB_OUTPUT"
+
+      - name: Call the API
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$API_BASE_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "::error::Set the API_BASE_URL and CRON_SECRET repository secrets first."
+            exit 1
+          fi
+          # A sleeping Render instance can take up to a minute to wake: retry and wait.
+          curl --fail-with-body --silent --show-error \
+               --retry 3 --retry-delay 20 --retry-all-errors --max-time 120 \
+               -X POST -H "x-cron-secret: $CRON_SECRET" \
+               "${API_BASE_URL%/}${{ steps.pick.outputs.endpoint }}"
+          echo

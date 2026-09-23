@@ -27,11 +27,20 @@ import { notifyNewPremium, sendToChat } from '../services/telegramService.js';
 const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY || '';
 const PAYSTACK_WEBHOOK_SECRET = process.env.PAYSTACK_WEBHOOK_SECRET || PAYSTACK_SECRET;
 const PAYSTACK_BASE = 'https://api.paystack.co';
+
+// Toolhaven sells on the same Paystack account. Paystack allows one webhook
+// URL per account, so this service is the only door and Toolhaven's events
+// have to be handed on. Unset in environments where Toolhaven is not running,
+// in which case its events are logged and dropped rather than guessed at.
+const TOOLHAVEN_WEBHOOK_URL = process.env.TOOLHAVEN_WEBHOOK_URL || '';
 // Single canonical URL — never a comma list (see config/appUrl.js).
 import { CANONICAL_URL as CLIENT_URL } from '../config/appUrl.js';
 import { isPaid, isSettling, respondPending } from '../utils/paymentStatus.js';
 import { grantCertificateForReference } from './certificateController.js';
 import { grantBookingForReference } from './bookingController.js';
+import { logEvent } from '../services/analytics.js';
+import { accessEnd, isPremiumUser } from '../config/entitlements.js';
+import { membershipState, keepingCounts } from '../services/membership.js';
 
 // Amounts are in the smallest unit (kobo for NGN, cents for USD).
 const PRICES = {
@@ -75,16 +84,19 @@ async function activateForPeriod(userId, interval, reference) {
   );
   if (dupe.rows.length) return false;
 
-  const uRes = await db.query('SELECT plan_renews_at FROM users WHERE id = $1', [userId]);
-  const current = uRes.rows[0]?.plan_renews_at ? new Date(uRes.rows[0].plan_renews_at) : null;
+  // Renewing early stacks: the new period starts when the current one ends.
+  // Reads either end-date column so legacy (plan_expires_at) users stack too.
+  const uRes = await db.query('SELECT plan_renews_at, plan_expires_at FROM users WHERE id = $1', [userId]);
+  const current = accessEnd(uRes.rows[0]);
   const base = current && current > new Date() ? current : new Date();
   const end = periodEnd(interval, base);
 
   await db.query(
-    `UPDATE users SET plan='premium', trial_ends_at=NULL, plan_renews_at=$1 WHERE id=$2`,
+    `UPDATE users SET plan='premium', trial_ends_at=NULL, plan_renews_at=$1, plan_expires_at=$1 WHERE id=$2`,
     [end, userId]
   );
   await recordEvent(userId, 'premium.activated', { reference, interval, until: end });
+  logEvent(userId, 'subscription_started', { source: 'subscription', interval });
   return true;
 }
 
@@ -123,18 +135,38 @@ async function storeCardForRenewal(userId, authorization, interval, currency, wa
 export const getSubscription = async (req, res) => {
   try {
     const { rows } = await db.query(
-      `SELECT plan, plan_renews_at, auto_renew, card_last4, card_brand,
+      `SELECT plan, trial_ends_at, plan_renews_at, plan_expires_at, auto_renew, card_last4, card_brand,
               paystack_authorization_code
        FROM users WHERE id = $1`,
       [req.user.id]
     );
     const u = rows[0] || {};
-    const active = u.plan === 'premium' && (!u.plan_renews_at || new Date(u.plan_renews_at) > new Date());
+    const m = membershipState(u);
+
+    // Recently moved to Free (last 14 days)? The app shows a "welcome back" note.
+    let state = m.state;
+    if (state === 'free') {
+      const r = await db.query(
+        `SELECT 1 FROM membership_events
+          WHERE user_id = $1 AND kind = 'downgraded' AND created_at > NOW() - INTERVAL '14 days' LIMIT 1`,
+        [req.user.id]
+      ).catch(() => ({ rows: [] }));
+      if (r.rows.length) state = 'recently_lapsed';
+    }
+    // What Premium is doing for them: shown when they're deciding whether to renew.
+    const keeping = ['ending_soon', 'grace', 'lapsed', 'recently_lapsed'].includes(state)
+      ? await keepingCounts(req.user.id) : null;
+
     res.json({
       success: true,
       plan: u.plan || 'free',
-      active,
-      access_ends_at: u.plan_renews_at,      // when current access lapses
+      active: isPremiumUser(u),
+      state,                                  // active | ending_soon | grace | lapsed | recently_lapsed | free
+      days_left: m.days_left ?? null,
+      grace_ends_at: m.grace_ends_at || null, // Premium keeps working until then
+      lifetime: Boolean(m.lifetime),
+      keeping,
+      access_ends_at: accessEnd(u),           // when the paid period ends
       auto_renew: Boolean(u.auto_renew),
       can_auto_renew: Boolean(u.paystack_authorization_code), // a card is on file
       card_last4: u.card_last4 || null,
@@ -417,6 +449,47 @@ async function handleRenewalFailure(userId, reference, reason) {
 /* ============================================================
  *  POST /api/webhooks/paystack — authoritative grant + audit trail
  * ============================================================ */
+/**
+ * Hand a Toolhaven charge to Toolhaven.
+ *
+ * The body is re-serialised from the parsed object rather than taken from the
+ * raw stream, which is safe here for the same reason the signature check above
+ * is: Paystack's payload round-trips through parse → stringify byte for byte,
+ * and if it did not, the check would already be failing for StockAcademia.
+ * Because the bytes are unchanged, the original signature still holds, and
+ * Toolhaven verifies it independently with the same secret. Nothing here asks
+ * Toolhaven to trust this service — it is carrying an envelope, not vouching
+ * for it.
+ *
+ * @returns {Promise<boolean>} whether Toolhaven accepted it
+ */
+async function forwardToToolhaven(req, event) {
+  if (!TOOLHAVEN_WEBHOOK_URL) {
+    console.warn('paystack: a Toolhaven charge arrived but TOOLHAVEN_WEBHOOK_URL is not set:', event?.data?.reference);
+    return false;
+  }
+  try {
+    const res = await fetch(TOOLHAVEN_WEBHOOK_URL, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        // The signature Paystack sent, over the bytes below.
+        'x-paystack-signature': req.headers['x-paystack-signature'] || '',
+      },
+      body: JSON.stringify(event),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (!res.ok) {
+      console.warn('paystack: Toolhaven rejected a forwarded charge:', res.status, event?.data?.reference);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('paystack: could not reach Toolhaven:', err.message, event?.data?.reference);
+    return false;
+  }
+}
+
 export const paystackWebhook = async (req, res) => {
   try {
     if (!PAYSTACK_WEBHOOK_SECRET) return res.sendStatus(200);
@@ -436,6 +509,22 @@ export const paystackWebhook = async (req, res) => {
     // Paystack allows ONE webhook URL per account, so this endpoint is the router
     // for every product we sell. Dispatch on the reference prefix.
     const ref = String(reference || '');
+
+    // Toolhaven (thp_…): a different business on the same Paystack account.
+    //
+    // This branch sits above the others deliberately. Without it a Toolhaven
+    // reference matches neither CERT- nor SUB_, falls through to the booking
+    // fallback below, and is quietly consumed here as a failed booking lookup
+    // — the charge succeeds, Toolhaven never hears, and the campaign the
+    // vendor paid for never starts.
+    //
+    // A failure to hand it on answers 500 on purpose, so Paystack retries.
+    // Losing a settlement is worse than a retry, and nothing in StockAcademia
+    // is touched either way.
+    if (ref.startsWith('thp_')) {
+      const handed = await forwardToToolhaven(req, event);
+      return res.sendStatus(handed ? 200 : 500);
+    }
 
     // Certificates (CERT-…): issue even if the buyer closed the tab mid-transfer.
     if (event?.event === 'charge.success' && ref.startsWith('CERT-')) {

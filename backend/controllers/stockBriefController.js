@@ -3,7 +3,7 @@
 //
 // When a user opens a ticker we DON'T have live data for (an NGX name not in
 // our table, an obscure global listing), instead of a dead "unavailable" we ask
-// Claude to identify the company and give a plain-English, beginner overview.
+// the AI to identify the company and give a plain-English, beginner overview.
 //
 // Public (optionalAuth) so free users can still explore. Heavily cached per
 // ticker+language (7 days — a company's identity is stable) and rate-limited at

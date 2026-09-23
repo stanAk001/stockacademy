@@ -1,5 +1,6 @@
 import axios from 'axios';
 import db from '../config/db.js';
+import { premiumSql } from '../config/entitlements.js';
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN || '';
 const ADMIN_CHAT_ID = process.env.TELEGRAM_ADMIN_CHAT_ID || '';
@@ -160,11 +161,9 @@ export async function sendToUser(userId, htmlText) {
 // Plan is re-checked AT SEND TIME so lapsed/free users never receive messages.
 export async function broadcastToPremium(htmlText) {
   const { rows } = await db.query(
-    `SELECT telegram_chat_id FROM users
-      WHERE plan = 'premium'
-        AND telegram_chat_id IS NOT NULL
-        AND (trial_ends_at  IS NULL OR trial_ends_at  > NOW())
-        AND (plan_renews_at IS NULL OR plan_renews_at > NOW())`
+    `SELECT u.telegram_chat_id FROM users u
+      WHERE ${premiumSql('u')}
+        AND u.telegram_chat_id IS NOT NULL`
   );
   let sent = 0, failed = 0;
   for (const r of rows) {

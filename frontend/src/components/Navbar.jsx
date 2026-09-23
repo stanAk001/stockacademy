@@ -3,7 +3,7 @@ import { Link, NavLink, useNavigate } from 'react-router-dom';
 import {
   Menu, X, LogOut, User, LayoutDashboard, BookOpen, LineChart,
   MessagesSquare, Trophy, Star, BellRing, Sparkles, GraduationCap, Calendar,
-  BarChart3
+  BarChart3, Compass
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import api from '../services/api';
@@ -13,6 +13,8 @@ import NotificationBell from './NotificationBell';
 
 const navItems = [
   { to: '/dashboard',  label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/my-market',  label: 'My Market', icon: Compass },   // free users get a preview
+  { to: '/scout',      label: 'AI Scout',  icon: Sparkles },  // free users get a monthly allowance
   { to: '/rankings',   label: 'Rankings',  icon: BarChart3 },
   { to: '/courses',    label: 'Courses',   icon: BookOpen },
   { to: '/simulator',  label: 'Simulator', icon: LineChart },

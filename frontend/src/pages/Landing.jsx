@@ -5,31 +5,109 @@ import {
   ArrowRight, Sparkles, TrendingUp, Users, BookOpen, LineChart, Trophy, Target,
   ShieldCheck, Zap, Search, Award, BarChart3, Activity, Shield, Globe2, Brain,
   GraduationCap, MessageSquareText, Languages, ChevronDown, LayoutDashboard, User, LogOut,
+  Telescope, Crosshair, BellRing, NotebookPen, Radar,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import PremiumBadge, { premiumRing } from '../components/PremiumBadge';
 import Logo from '../components/Logo';
 import TickerTape from '../components/TickerTape';
-import LiveDemo from '../components/LiveDemo';
+import IntelligenceDemo from '../components/IntelligenceDemo';
 import AboutCreator from '../components/AboutCreator';
 import AIAnalysisShowcase from '../components/AIAnalysisShowcase';
 import Footer from '../components/Footer';
 import { siteConfig } from '../siteConfig';
 
-const headlineFeatures = [
-  { icon: Brain,         title: 'Smart Stock Analysis',  desc: 'The real numbers on any stock — US or Nigerian — explained in plain English.', color: 'bg-coral-300' },
-  { icon: Search,        title: 'Search any stock',       desc: 'AAPL, Tesla, Dangote Cement, MTN Nigeria — type a ticker or a name.',  color: 'bg-sun-300' },
-  { icon: BookOpen,      title: '6 Structured courses',   desc: 'From "what\'s a dividend?" to fundamental and technical analysis.',     color: 'bg-bull-400' },
-  { icon: LineChart,     title: '$100k Paper trading',    desc: 'Practice without losing real money. Make every rookie mistake for free.', color: 'bg-sage-400' },
-  { icon: GraduationCap, title: '1-on-1 Mentorship',      desc: 'Book private sessions to accelerate your learning.',                   color: 'bg-coral-300' },
-  { icon: Users,         title: 'Community forum',        desc: 'Discuss stocks with other learners. No judgment. No pump groups.',     color: 'bg-sun-300' },
+// The product's loop, in the order a user lives it. `free` = free users can try
+// this step every month; the rest is what Premium adds.
+const WORKFLOW = [
+  { n: '01', step: 'Find', icon: Telescope, free: true,
+    title: 'Spot the opportunities',
+    desc: 'The AI Scout and Opportunity Radar scan US and NGX stocks for setups that fit how you invest.' },
+  { n: '02', step: 'Understand', icon: Brain, free: true,
+    title: 'Know what you’re looking at',
+    desc: 'Fundamentals, technicals and news on any stock, in plain English, Pidgin, Yorùbá, Hausa or Igbo.' },
+  { n: '03', step: 'Plan', icon: Crosshair, free: false,
+    title: 'Get a clear plan',
+    desc: 'Entry, confirmation, stop and targets, checked from the weekly chart down to the 1-hour.' },
+  { n: '04', step: 'Monitor', icon: BellRing, free: false,
+    title: 'Let us watch it',
+    desc: 'Setups, positions, theses and your watchlist, tracked for you. An alert when something changes.' },
+  { n: '05', step: 'Review', icon: NotebookPen, free: false,
+    title: 'Get better every trade',
+    desc: 'Your journal, AI post-trade reviews and personal patterns show what works for you.' },
+];
+
+// One zone of the "How it works" band. The free zone is light, the Premium
+// zone is dark, so where Premium takes over is obvious without per-step badges.
+// A journey line runs through the step icons and draws in on scroll.
+function JourneyZone({ free, steps, className = '' }) {
+  const reduce = useReducedMotion();
+  return (
+    <div className={`${free ? 'bg-white text-ink' : 'bg-ink text-cream'} p-4 sm:p-8 lg:p-9 ${className}`}>
+      <div className="flex items-center justify-between gap-2 mb-5 sm:mb-9">
+        <span className={`inline-flex items-center gap-1 sm:gap-1.5 text-[9px] sm:text-[11px] font-black uppercase tracking-wider sm:tracking-widest px-2.5 sm:px-3 py-1 rounded-full whitespace-nowrap ${
+          free ? 'bg-bull-100 text-bull-700' : 'bg-sun-300 text-ink'
+        }`}>
+          <Sparkles size={11} /> {free ? 'Free to try · every month' : 'Premium · we take it from here'}
+        </span>
+        <Link
+          to={free ? '/signup' : '/pricing'}
+          className={`text-xs sm:text-sm font-bold inline-flex items-center gap-1 hover:underline whitespace-nowrap ${free ? 'text-bull-600' : 'text-sun-300'}`}
+        >
+          {free ? 'Start free' : 'See Premium'} <ArrowRight size={13} />
+        </Link>
+      </div>
+
+      {/* steps stay side by side at every size; phones get tighter type */}
+      <ol className={`relative grid gap-3 sm:gap-6 ${free ? 'grid-cols-2' : 'grid-cols-3'}`}>
+        {/* journey line, running behind the icons */}
+        <motion.span
+          aria-hidden
+          className={`block absolute top-4 sm:top-5 left-4 sm:left-5 right-0 h-px origin-left ${free ? 'bg-ink/10' : 'bg-sun-300/40'}`}
+          initial={reduce ? false : { scaleX: 0 }}
+          whileInView={{ scaleX: 1 }}
+          viewport={{ once: true }}
+          transition={{ duration: 0.9, ease: [0.22, 1, 0.36, 1] }}
+        />
+        {steps.map((w, i) => (
+          <motion.li
+            key={w.n}
+            initial={reduce ? false : { opacity: 0, y: 16 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true, margin: '-40px' }}
+            transition={{ duration: 0.4, delay: 0.15 + i * 0.1 }}
+            className="relative min-w-0"
+          >
+            <div className={`relative z-10 w-8 h-8 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl grid place-items-center ${
+              free ? 'bg-sun-300 text-ink' : 'bg-ink text-sun-300 ring-1 ring-sun-300/40'
+            }`}>
+              <w.icon className="w-[15px] h-[15px] sm:w-[18px] sm:h-[18px]" strokeWidth={2.2} />
+            </div>
+            <p className={`mt-2.5 sm:mt-4 font-mono text-[9px] sm:text-[11px] font-bold tracking-wider sm:tracking-widest ${free ? 'text-ink/40' : 'text-cream/40'}`}>
+              {w.n} · {w.step.toUpperCase()}
+            </p>
+            <h3 className="font-display text-[13px] sm:text-xl font-bold mt-0.5 sm:mt-1 leading-tight">{w.title}</h3>
+            <p className={`text-[11px] sm:text-sm mt-1 sm:mt-2 leading-snug sm:leading-relaxed ${free ? 'text-ink/65' : 'text-cream/65'}`}>{w.desc}</p>
+          </motion.li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
+// The learning foundation the platform was built on.
+const BASICS = [
+  { icon: BookOpen, title: '6 structured courses', desc: 'From “what’s a dividend?” to technical analysis. Free.' },
+  { icon: LineChart, title: '$100k paper trading', desc: 'Practise without risking real money. Free.' },
+  { icon: GraduationCap, title: '1-on-1 mentorship', desc: 'Book time with a human mentor when you’re ready.' },
+  { icon: Users, title: 'Community forum', desc: 'Learn with other investors. No pump groups.' },
 ];
 
 const stats = [
   { number: '50+', label: 'Stocks covered' },
+  { number: '🇳🇬 + 🇺🇸', label: 'Markets' },
   { number: '5', label: 'Languages' },
-  { number: '🇳🇬 + 🇺🇸', label: 'Markets covered' },
-  { number: 'Free', label: 'To start' },
+  { number: 'Free', label: 'AI to start' },
 ];
 
 const syllabus = [
@@ -41,58 +119,60 @@ const syllabus = [
   { n: '06', title: 'Trading Strategies', desc: 'Day, swing, long-term — find your style.' },
 ];
 
-// Hero badge that cycles tagline + a matching icon, in sync. The icon pops &
-// rotates while the text slides; a hidden stack of all phrases reserves the
-// widest width so the pill never jumps as the text changes.
+// Hero badge that cycles a tagline + matching icon. The text slides inside a
+// fixed-height window that clips it (grid + overflow-hidden + explicit height),
+// so it can never spill out of the pill mid-animation. Every phrase is stacked
+// invisibly in the same cell, so the pill is as wide as the WIDEST one (pixel
+// width, not character count) and never clips or jumps. Holds still for
+// reduced motion.
 const BADGE_ITEMS = [
-  { text: 'Stocks in plain English', Icon: MessageSquareText },
-  { text: 'Even in Pidgin & Yorùbá', Icon: Languages },
-  { text: 'NGX + US markets', Icon: TrendingUp },
-  { text: "Learn — don't gamble", Icon: GraduationCap },
+  { text: 'AI that watches the market', Icon: Radar },
+  { text: 'US + NGX stocks', Icon: TrendingUp },
+  { text: 'Plain English · even Pidgin', Icon: Languages },
+  { text: 'Alerts when it matters', Icon: BellRing },
 ];
 
 function RotatingBadge() {
+  const reduce = useReducedMotion();
   const [i, setI] = useState(0);
   useEffect(() => {
+    if (reduce) return undefined;
     const t = setInterval(() => setI((p) => (p + 1) % BADGE_ITEMS.length), 4200);
     return () => clearInterval(t);
-  }, []);
+  }, [reduce]);
   const Active = BADGE_ITEMS[i].Icon;
   return (
-    <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1 sm:py-1.5 rounded-full bg-ink text-cream text-[10px] sm:text-xs font-semibold uppercase tracking-widest mb-4 sm:mb-6">
-      {/* icon swaps with a pop + rotate, synced to the text */}
+    <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-ink text-cream text-[10px] sm:text-xs font-semibold uppercase tracking-widest mb-4 sm:mb-6">
       <span className="relative w-4 h-4 shrink-0">
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="wait" initial={false}>
           <motion.span
             key={i}
-            initial={{ scale: 0.3, opacity: 0, rotate: -45 }}
-            animate={{ scale: 1, opacity: 1, rotate: 0 }}
-            exit={{ scale: 0.3, opacity: 0, rotate: 45 }}
-            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+            initial={{ scale: 0.4, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            exit={{ scale: 0.4, opacity: 0 }}
+            transition={{ duration: 0.3 }}
             className="absolute inset-0 grid place-items-center text-sun-300"
           >
             <Active size={13} strokeWidth={2.6} />
           </motion.span>
         </AnimatePresence>
       </span>
-      <span className="grid">
+      <span className="relative grid overflow-hidden h-[1.3em] leading-[1.3em]">
         {BADGE_ITEMS.map((it) => (
           <span key={it.text} aria-hidden className="invisible whitespace-nowrap" style={{ gridArea: '1 / 1' }}>{it.text}</span>
         ))}
-        <span className="overflow-hidden" style={{ gridArea: '1 / 1' }}>
-          <AnimatePresence mode="wait">
-            <motion.span
-              key={i}
-              initial={{ y: '110%', opacity: 0 }}
-              animate={{ y: 0, opacity: 1 }}
-              exit={{ y: '-110%', opacity: 0 }}
-              transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              className="block whitespace-nowrap"
-            >
-              {BADGE_ITEMS[i].text}
-            </motion.span>
-          </AnimatePresence>
-        </span>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.span
+            key={i}
+            initial={{ y: '100%', opacity: 0 }}
+            animate={{ y: '0%', opacity: 1 }}
+            exit={{ y: '-100%', opacity: 0 }}
+            transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 block whitespace-nowrap"
+          >
+            {BADGE_ITEMS[i].text}
+          </motion.span>
+        </AnimatePresence>
       </span>
     </div>
   );
@@ -348,8 +428,9 @@ export default function Landing() {
               </>
             ) : (
               <>
+                <a href="#features" className="px-3 py-2 text-sm font-semibold hover:text-bull-600 transition">How it works</a>
                 <a href="#analysis" className="px-3 py-2 text-sm font-semibold hover:text-bull-600 transition">AI Analysis</a>
-                <a href="#features" className="px-3 py-2 text-sm font-semibold hover:text-bull-600 transition">Features</a>
+                <Link to="/pricing" className="px-3 py-2 text-sm font-semibold hover:text-bull-600 transition">Pricing</Link>
                 <a href="#mentorship" className="px-3 py-2 text-sm font-semibold hover:text-bull-600 transition">Mentorship</a>
               </>
             )}
@@ -374,8 +455,6 @@ export default function Landing() {
       <section className="relative pt-8 sm:pt-20 pb-12 sm:pb-20 overflow-hidden">
         <div className="absolute top-20 -left-20 w-60 sm:w-80 h-60 sm:h-80 bg-sun-300/40 animate-blob" />
         <div className="absolute bottom-10 -right-10 w-52 sm:w-72 h-52 sm:h-72 bg-coral-300/30 animate-blob" style={{ animationDelay: '3s' }} />
-        <div className="absolute top-40 right-1/4 w-6 h-6 bg-ink rounded-full animate-float-fast hidden sm:block" />
-        <div className="absolute top-60 left-1/4 w-4 h-4 bg-bull-500 rounded-full animate-float-slow hidden sm:block" />
 
         <div className="relative max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 grid lg:grid-cols-12 gap-8 sm:gap-10 items-center">
           <motion.div
@@ -386,32 +465,44 @@ export default function Landing() {
           >
             <RotatingBadge />
 
-            <h1 className="font-display font-black text-3xl sm:text-6xl lg:text-7xl leading-[1.05] tracking-tight">
-              Analyse any{' '}
+            <h1 className="font-display font-black text-3xl sm:text-6xl lg:text-[4.25rem] leading-[1.05] tracking-tight">
+              Any stock,{' '}
               <span className="relative inline-block">
-                <span className="relative z-10 italic">stock</span>
+                <span className="relative z-10 italic">analysed</span>
                 <svg className="absolute -bottom-1 sm:-bottom-2 left-0 w-full" height="14" viewBox="0 0 200 18">
                   <path d="M2,14 C50,4 100,14 198,6" stroke="#FBBF24" strokeWidth="6" fill="none" strokeLinecap="round" />
                 </svg>
               </span>
               .<br />
-              Invest with{' '}
-              <span className="italic text-coral-500">confidence.</span>
+              Then{' '}
+              {/* margin keeps the italic "d" from leaning into the next word */}
+              <span className="italic text-coral-500 mr-[0.08em]">watched</span>{' '}
+              <span className="whitespace-nowrap">for you.</span>
             </h1>
 
-            <p className="mt-5 sm:mt-7 text-base sm:text-xl text-ink/70 leading-relaxed max-w-xl">
-              Stop gambling on stocks and start understanding them. StockAcademia teaches you every NGX and US stock in plain English, with{' '}
-              <strong className="font-bold text-ink bg-sun-300/60 rounded-[3px] px-1 box-decoration-clone">free</strong> courses,{' '}
-              <strong className="text-ink font-semibold">$100,000</strong> to practise on, and mentors when you're ready for one. When it's time for real money, you'll invest with{' '}
-              <strong className="text-ink font-semibold">confidence, not luck.</strong>
+            {/* The story, with one turning point in bold ink. */}
+            <p className="mt-5 sm:mt-7 text-base sm:text-lg text-ink/70 leading-relaxed max-w-xl">
+              StockAcademia scans US and Nigerian stocks for potential opportunities, explains what matters in plain
+              English, and turns the analysis into a clear plan — potential entry, stop and targets.{' '}
+              <strong className="text-ink font-semibold">Then it keeps watching.</strong>{' '}
+              When something important changes, you get an alert. No endless feed to monitor. No need to stare at
+              charts all day.
+            </p>
+
+            {/* The offer, set apart and a step quieter. */}
+            <p className="mt-3 sm:mt-4 text-sm sm:text-base text-ink/60 leading-relaxed max-w-xl">
+              Start{' '}
+              <strong className="font-bold text-ink bg-sun-300/60 rounded-[3px] px-1 box-decoration-clone">free</strong>{' '}
+              with monthly AI analyses, six investing courses and{' '}
+              <strong className="text-ink font-semibold">$100,000</strong> in practice money.
             </p>
 
             <div className="mt-5 sm:mt-7 flex flex-wrap gap-3">
               <Link to={user ? '/dashboard' : '/signup'} className="btn-primary text-sm sm:text-base">
-                {user ? 'Go to your dashboard' : 'Start learning free'} <ArrowRight size={16}/>
+                {user ? 'Go to your dashboard' : 'Start free — try the AI'} <ArrowRight size={16}/>
               </Link>
-              <a href="#analysis" className="btn-ghost text-sm sm:text-base">
-                See what's inside ↓
+              <a href="#features" className="btn-ghost text-sm sm:text-base">
+                See how it works ↓
               </a>
             </div>
 
@@ -432,7 +523,7 @@ export default function Landing() {
             transition={{ duration: 0.8, delay: 0.2 }}
             className="lg:col-span-5 relative mt-6 lg:mt-0"
           >
-            <LiveDemo preview />
+            <IntelligenceDemo />
           </motion.div>
         </div>
       </section>
@@ -451,33 +542,43 @@ export default function Landing() {
         <AIAnalysisShowcase />
       </div>
 
-      {/* WHAT YOU GET */}
-      <section id="features" className="py-16 sm:py-24 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
-        <div className="max-w-2xl mb-8 sm:mb-14">
-          <p className="text-xs sm:text-sm font-bold uppercase tracking-widest text-bull-600 mb-2 sm:mb-3">A complete platform</p>
-          <h2 className="font-display font-black text-3xl sm:text-5xl leading-[1.05]">
-            More than just a learning site.<br />
-            <span className="italic font-medium text-ink/60">Your full investing toolkit.</span>
+      {/* HOW IT WORKS — the product's loop. Two zones make the offer obvious:
+          what you can try free, and where Premium takes over. */}
+      <section id="features" className="py-16 sm:py-24 max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 scroll-mt-20">
+        <div className="max-w-3xl mb-10 sm:mb-12">
+          <p className="text-xs sm:text-sm font-bold uppercase tracking-widest text-bull-600 mb-2 sm:mb-3">How StockAcademia works</p>
+          <h2 className="font-display font-black text-3xl sm:text-5xl lg:text-[3.4rem] leading-[1.05]" style={{ textWrap: 'balance' }}>
+            From first search to final review.{' '}
+            <span className="italic font-medium text-ink/55">We watch the market in between.</span>
           </h2>
+          <p className="mt-4 sm:mt-5 text-base sm:text-lg text-ink/65 leading-relaxed max-w-2xl">
+            Five steps, one place. Try the first two free every month. Premium adds the plan, the monitoring and
+            the review, so nothing important slips past you.
+          </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-          {headlineFeatures.map((f, i) => (
-            <motion.div
-              key={f.title}
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.5, delay: i * 0.06 }}
-              className="card-soft p-5 sm:p-7 hover:shadow-2xl hover:-translate-y-1 transition"
-            >
-              <div className={`w-12 h-12 sm:w-14 sm:h-14 rounded-2xl ${f.color} grid place-items-center mb-4 sm:mb-5`}>
-                <f.icon size={22} className="text-ink" strokeWidth={2.2}/>
+        {/* zones stack on phones (free on top, Premium below), sit side by side on desktop */}
+        <div className="grid lg:grid-cols-5 rounded-2xl sm:rounded-[1.75rem] overflow-hidden ring-1 ring-ink/10 shadow-sm">
+          <JourneyZone free steps={WORKFLOW.filter((w) => w.free)} className="lg:col-span-2" />
+          <JourneyZone steps={WORKFLOW.filter((w) => !w.free)} className="lg:col-span-3" />
+        </div>
+
+        {/* the learning foundation */}
+        <div className="mt-10 sm:mt-12 card-soft p-5 sm:p-7">
+          <p className="text-xs font-bold uppercase tracking-widest text-coral-500 mb-4 sm:mb-5">Plus everything you need to learn</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-5 sm:gap-6">
+            {BASICS.map((b) => (
+              <div key={b.title} className="flex flex-col sm:flex-row items-start gap-2 sm:gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-cream-warm grid place-items-center shrink-0">
+                  <b.icon size={18} className="text-ink" strokeWidth={2.2} />
+                </div>
+                <div className="min-w-0">
+                  <p className="font-bold text-sm">{b.title}</p>
+                  <p className="text-xs sm:text-[13px] text-ink/60 mt-0.5 leading-snug">{b.desc}</p>
+                </div>
               </div>
-              <h3 className="font-display text-lg sm:text-2xl font-bold mb-2">{f.title}</h3>
-              <p className="text-sm sm:text-base text-ink/70 leading-relaxed">{f.desc}</p>
-            </motion.div>
-          ))}
+            ))}
+          </div>
         </div>
       </section>
 
@@ -572,15 +673,16 @@ export default function Landing() {
             </h2>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          {/* Two side by side on phones, three on desktop. */}
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-4">
             {syllabus.map((s) => (
-              <div key={s.n} className="bg-white rounded-3xl p-5 sm:p-6 hover:shadow-lg transition">
-                <div className="flex items-start justify-between mb-3 sm:mb-4">
-                  <span className="font-display text-3xl sm:text-4xl font-black text-coral-400">{s.n}</span>
-                  <ArrowRight className="opacity-30" size={18}/>
+              <div key={s.n} className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 hover:shadow-lg transition min-w-0">
+                <div className="flex items-start justify-between mb-2 sm:mb-4">
+                  <span className="font-display text-2xl sm:text-4xl font-black text-coral-400">{s.n}</span>
+                  <ArrowRight className="opacity-30 shrink-0" size={16}/>
                 </div>
-                <h3 className="font-display text-lg sm:text-xl font-bold mb-1">{s.title}</h3>
-                <p className="text-xs sm:text-sm text-ink/60">{s.desc}</p>
+                <h3 className="font-display text-base sm:text-xl font-bold mb-1 leading-tight">{s.title}</h3>
+                <p className="text-xs sm:text-sm text-ink/60 leading-snug">{s.desc}</p>
               </div>
             ))}
           </div>

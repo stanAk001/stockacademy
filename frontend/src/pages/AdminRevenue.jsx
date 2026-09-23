@@ -103,13 +103,104 @@ export default function AdminRevenue() {
 
         {/* AI spend */}
         <AiSpendPanel />
+
+        {/* Free → Premium funnel */}
+        <FunnelPanel />
       </div>
     </Layout>
   );
 }
 
 /* ============================================================
- *  AI spend panel — reads ai_usage_log so you can watch Anthropic cost.
+ *  Funnel panel — reads analytics_events: which free features users touched
+ *  before paying, which upgrade prompts get clicked, where free users stall.
+ * ============================================================ */
+function FunnelPanel() {
+  const [d, setD] = useState(null);
+  const [days, setDays] = useState(30);
+
+  useEffect(() => {
+    setD(null);
+    api.get('/admin/analytics/funnel', { params: { days } })
+      .then(({ data }) => data.success && setD(data))
+      .catch(() => setD({ unavailable: true }));
+  }, [days]);
+
+  const label = (s) => String(s || '—').replace(/_/g, ' ');
+  const sum = (rows, k) => (rows || []).reduce((s, r) => s + (r[k] || 0), 0);
+
+  return (
+    <div className="card-soft p-6 mt-6">
+      <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <div className="w-9 h-9 rounded-xl bg-ink grid place-items-center">
+            <TrendingUp size={16} className="text-sun-300" />
+          </div>
+          <h2 className="font-display text-xl font-bold">Free → Premium funnel</h2>
+        </div>
+        <select value={days} onChange={(e) => setDays(Number(e.target.value))}
+          className="text-sm font-semibold bg-ink/5 rounded-lg px-3 py-1.5 outline-none">
+          <option value={7}>Last 7 days</option>
+          <option value={30}>Last 30 days</option>
+          <option value={90}>Last 90 days</option>
+        </select>
+      </div>
+
+      {!d ? (
+        <div className="h-24 bg-ink/5 rounded-2xl animate-pulse" />
+      ) : d.unavailable ? (
+        <p className="text-ink/50 italic text-sm">No analytics yet. Apply migration_34 to start collecting events.</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+            <Stat icon={TrendingUp} label="New subscribers" value={d.conversions} sub={`last ${d.days} days`} color="bg-bull-100 text-bull-700" />
+            <Stat icon={TrendingUp} label="Upgrade clicks" value={sum(d.upgrade_clicks, 'n')} sub="all prompts" color="bg-sun-100 text-sun-600" />
+            <Stat icon={Brain} label="Free AI uses" value={sum(d.feature_use, 'free_uses')} sub="metered tools" color="bg-coral-300/40 text-coral-500" />
+            <Stat icon={Brain} label="Limit hits" value={sum(d.limits_reached, 'n')} sub="free wall reached" color="bg-ink/5 text-ink/70" />
+          </div>
+
+          <div className="grid md:grid-cols-2 gap-5">
+            <FunnelList title="What subscribers did before paying" empty="No subscriptions in this window yet."
+              rows={d.before_conversion}
+              render={(r) => [`${label(r.event)}${r.detail ? ` · ${label(r.detail)}` : ''}`, `${r.users} users`]} />
+            <FunnelList title="Upgrade prompts clicked" empty="No upgrade clicks yet."
+              rows={d.upgrade_clicks} render={(r) => [label(r.surface), `${r.n} (${r.users} users)`]} />
+            <FunnelList title="Where free users hit the limit" empty="No one has hit a limit yet."
+              rows={d.limits_reached} render={(r) => [label(r.feature), `${r.n} (${r.users} users)`]} />
+            <FunnelList title="AI tool use: free / premium" empty="No metered AI use yet."
+              rows={d.feature_use} render={(r) => [label(r.feature), `${r.free_uses} / ${r.premium_uses}`]} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function FunnelList({ title, rows, render, empty }) {
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-widest text-ink/50 mb-2">{title}</p>
+      {!rows?.length ? (
+        <p className="text-sm text-ink/45 italic">{empty}</p>
+      ) : (
+        <ul className="divide-y divide-ink/5">
+          {rows.slice(0, 8).map((r, i) => {
+            const [left, right] = render(r);
+            return (
+              <li key={i} className="flex items-center justify-between gap-3 py-1.5 text-sm">
+                <span className="capitalize truncate">{left}</span>
+                <span className="font-mono font-semibold text-ink/70 shrink-0">{right}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+ *  AI spend panel — reads ai_usage_log so you can watch OpenAI cost.
  * ============================================================ */
 function AiSpendPanel() {
   const [ai, setAi] = useState(null);
@@ -167,7 +258,7 @@ function AiSpendPanel() {
           )}
 
           <p className="text-xs text-ink/50">
-            Set a hard monthly cap at console.anthropic.com — this panel is for visibility, not a limit.
+            Set a hard monthly cap at platform.openai.com — this panel is for visibility, not a limit.
           </p>
         </>
       )}

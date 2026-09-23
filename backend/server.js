@@ -14,7 +14,16 @@ import cron from 'node-cron';
 import { updateAllUSStocks } from './services/stockFundamentalsUpdater.js';
 import { refreshUsSnapshots } from './services/marketSnapshot.js';
 import { refreshAllNgxPrices, refreshNgxHistoryMetrics, refreshAllUsPrices } from './services/marketPrice.js';
+import { importNgxListings } from './services/ngxImporter.js';
 import { checkPriceAlerts } from './services/alertEngine.js';
+import { refreshTechnicals } from './services/technicalsUpdater.js';
+import { monitorSetups } from './services/setupMonitor.js';
+import { monitorPositions } from './services/positionMonitor.js';
+import { monitorTheses } from './services/thesisMonitor.js';
+import { monitorWatchlists } from './services/watchlistMonitor.js';
+import { monitorNews } from './services/newsMonitor.js';
+import { sendDailyBriefings } from './services/briefingDigest.js';
+import { runMembershipLifecycle } from './services/membership.js';
 import authRoutes from './routes/auth.js';
 import courseRoutes from './routes/courses.js';
 import tradingRoutes from './routes/trading.js';
@@ -37,9 +46,13 @@ import portfolioReviewRoutes from './routes/portfolioReviews.js';
 import webhookRoutes from './routes/webhooks.js';
 import insightsRoutes from './routes/insights.js';
 import notificationRoutes from './routes/notifications.js';
+import pushRoutes from './routes/push.js';
+import analyticsRoutes from './routes/analytics.js';
+import cronRoutes from './routes/cron.js';
 import {
-  generateDailyRecap, insightsIndexHtml, insightHtml, sitemapXml, robotsTxt,
+  generateDailyRecap, insightsIndexHtml, insightHtml, robotsTxt,
 } from './controllers/insightsController.js';
+import { registerSeoRoutes, seoSitemap } from './controllers/seoController.js';
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -103,7 +116,7 @@ app.get(['/api/health', '/healthz'], (req, res) => {
     keys: {
       finnhub: Boolean(process.env.FINNHUB_API_KEY),   // US prices
       ngx_pulse: Boolean(process.env.NGX_PULSE_API_KEY), // NGX prices
-      anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
+      openai: Boolean(process.env.OPENAI_API_KEY),
     },
     timestamp: new Date().toISOString(),
   });
@@ -115,6 +128,7 @@ app.use('/api/courses', courseRoutes);
 app.use('/api/trading', tradingRoutes);
 app.use('/api/forum', forumRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/push', pushRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/watchlist', watchlistRoutes);
 app.use('/api/alerts', alertsRoutes);
@@ -128,11 +142,15 @@ app.use('/api/telegram', telegramRoutes);
 app.use('/api/portfolio-reviews', portfolioReviewRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/insights', insightsRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/cron', cronRoutes); // external scheduler hooks (CRON_SECRET)
 
 // Public, crawlable SEO pages (real HTML — served by the API host).
 app.get('/insights', insightsIndexHtml);
 app.get('/insights/:slug', insightHtml);
-app.get('/sitemap.xml', sitemapXml);
+// Public stock pages, screener/analysis landings, and the full sitemap.
+registerSeoRoutes(app);
+app.get('/sitemap.xml', seoSitemap);
 app.get('/robots.txt', robotsTxt);
 
 app.use((req, res) => {
@@ -151,6 +169,10 @@ cron.schedule('0 6 * * *', async () => {
   // Yahoo covers ratios; Finnhub tops up live price + day change (used by recaps,
   // Compare, and Stock Detail). Runs regardless of whether Yahoo succeeded.
   await refreshUsSnapshots();
+  // Pick up newly listed NGX companies before pricing, so they're usable today.
+  await importNgxListings()
+    .then((r) => r.ok && r.added && console.log(`[cron] NGX listings: +${r.added} new`))
+    .catch((e) => console.warn('[cron] NGX listings import:', e.message));
   // One NGX Pulse call refreshes every NGX price we track.
   await refreshAllNgxPrices().catch((e) => console.warn('[cron] NGX price refresh:', e.message));
   // Real NGX returns/volatility computed from price history. ~27 calls, paced
@@ -158,9 +180,19 @@ cron.schedule('0 6 * * *', async () => {
   refreshNgxHistoryMetrics()
     .then((r) => console.log('[cron] NGX history metrics:', JSON.stringify(r)))
     .catch((e) => console.warn('[cron] NGX history metrics:', e.message));
+  // Recompute technical indicators + setup scores from fresh candles. US only —
+  // NGX daily history needs the NGX Pulse Starter plan (free tier = 7 sessions,
+  // too few for indicators), and the Scout falls back to live NGX data anyway.
+  // Runs in the background (fetches history one symbol at a time).
+  refreshTechnicals({ country: 'US' })
+    .then((r) => console.log('[cron] Technicals:', JSON.stringify({ updated: r.updated, total: r.total })))
+    .catch((e) => console.warn('[cron] Technicals refresh:', e.message));
   // Fresh prices in — check alerts right away.
   const fired = await checkPriceAlerts();
   if (fired) console.log(`[cron] Fired ${fired} price alert(s) after price update`);
+  // Fresh fundamentals in — re-check long-term theses for material changes (§10/§11).
+  const theses = await monitorTheses();
+  if (theses) console.log(`[cron] ${theses} investment thesis change(s)`);
 }, {
   timezone: 'Africa/Lagos',
 });
@@ -172,6 +204,36 @@ console.log('📊 Daily US stock fundamentals updater scheduled for 6am Lagos ti
 cron.schedule('*/15 * * * *', async () => {
   const fired = await checkPriceAlerts();
   if (fired) console.log(`[cron] Fired ${fired} price alert(s)`);
+  // Advance any tracked swing setups whose price crossed a lifecycle level.
+  const advanced = await monitorSetups();
+  if (advanced) console.log(`[cron] Advanced ${advanced} swing setup(s)`);
+  // Re-check open positions' thesis state (intact / strengthening / weakening / invalidated).
+  const posChanged = await monitorPositions();
+  if (posChanged) console.log(`[cron] Updated ${posChanged} position(s)`);
+  // Watched stocks whose status moved somewhere worth an alert.
+  const wlAlerts = await monitorWatchlists();
+  if (wlAlerts) console.log(`[cron] Sent ${wlAlerts} watchlist alert(s)`);
+});
+
+// Every 3 hours — company news for stocks Premium users follow. When the server
+// sleeps (Render free tier), POST /api/cron/news from an external scheduler.
+cron.schedule('0 */3 * * *', () => {
+  monitorNews()
+    .then((r) => { if (!r.skipped) console.log('[cron] News:', JSON.stringify(r)); })
+    .catch((e) => console.warn('[cron] News failed:', e.message));
+});
+
+// 7:30am Lagos — the daily "what changed" briefing alert (once per user per day).
+cron.schedule('30 7 * * *', async () => {
+  const r = await sendDailyBriefings();
+  console.log('[cron] Daily briefing:', JSON.stringify(r));
+}, { timezone: 'Africa/Lagos' });
+
+// Hourly — Premium membership lifecycle: renewal reminders, "ended" notices,
+// and moving users to Free once their grace period is over. Idempotent.
+cron.schedule('5 * * * *', async () => {
+  const r = await runMembershipLifecycle();
+  if (r.reminders || r.expired || r.downgraded) console.log('[cron] Membership:', JSON.stringify(r));
 });
 
 // Daily at 7am Lagos time — charge saved cards for users who opted into auto-renew

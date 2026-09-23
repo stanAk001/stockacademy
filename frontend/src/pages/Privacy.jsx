@@ -34,7 +34,7 @@ const SECTIONS = [
   {
     h: 'AI features',
     body: [
-      'When you use an AI feature (stock verdicts, stock comparison, the in-lesson tutor, news scanning), the relevant stock data and your question are sent to our AI provider (Anthropic) to generate a response. Please don’t put sensitive personal information into AI prompts.',
+      'When you use an AI feature (stock verdicts, stock comparison, the in-lesson tutor, news scanning), the relevant stock data and your question are sent to our AI provider (OpenAI) to generate a response. Please don’t put sensitive personal information into AI prompts.',
     ],
   },
   {
@@ -43,7 +43,7 @@ const SECTIONS = [
       'We share only what’s needed with trusted providers, and we never sell your data:',
       [
         'Paystack — payment processing.',
-        'Anthropic — AI-generated explanations.',
+        'OpenAI — AI-generated explanations.',
         'Finnhub and other market-data providers — stock prices and fundamentals.',
         'Google — optional sign-in.',
         'Our hosting and database providers — to store and serve your account.',

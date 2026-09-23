@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
-  Check, Sparkles, Loader2, Brain, BarChart3, Users, FileText,
-  Send, ClipboardCheck, Activity, Star, Shield, Award, ChevronDown,
+  Check, Sparkles, Loader2, Brain, BarChart3, FileText,
+  Send, ClipboardCheck, Star, Shield, Award, ChevronDown,
+  Compass, Crosshair, Radar, Wallet, BellRing, NotebookPen,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Layout from '../components/Layout';
@@ -31,6 +32,11 @@ const PRICING = {
   },
 };
 
+// Free monthly AI allowances. Fallback only: the real numbers come from
+// GET /ai/free-limits (config/entitlements.js on the server).
+const DEFAULT_FREE = { ai_analysis: 3, ai_scout: 2, ai_comparison: 1, ai_news: 2, ai_research: 1 };
+const pl = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 export default function Pricing() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -44,6 +50,16 @@ export default function Pricing() {
   const [planInfo, setPlanInfo] = useState(null);
   const [loading, setLoading] = useState(false);
   const [autoRenew, setAutoRenew] = useState(false);   // opt-in at checkout (card only)
+  const [free, setFree] = useState(DEFAULT_FREE);      // free monthly AI allowances
+
+  useEffect(() => {
+    api.get('/ai/free-limits')
+      .then(({ data }) => {
+        if (!data?.success || !data.limits) return;
+        setFree((f) => ({ ...f, ...Object.fromEntries(Object.entries(data.limits).map(([k, v]) => [k, v.limit])) }));
+      })
+      .catch(() => {});
+  }, []);
 
   // Currency follows the visitor's location (server-side IP geolocation).
   // Nigeria -> NGN. Every other country -> USD. No manual switch.
@@ -65,6 +81,10 @@ export default function Pricing() {
   const sym = c.symbol;
   const price = c[interval];
   const isPremium = user?.plan === 'premium';
+  // Premium that's about to end (or already in its grace days) must be able to
+  // renew from here, so the pay button shows for them too.
+  const canRenew = ['ending_soon', 'grace', 'lapsed'].includes(planInfo?.state);
+  const shortDate = (d) => (d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : '');
 
   // Pay-first: charge for the chosen period via Paystack (card OR transfer OR
   // USSD OR Opay). No trial, no auto-renew — access lasts the period paid for.
@@ -204,8 +224,19 @@ export default function Pricing() {
                 <Feature>Quizzes, XP &amp; leaderboard</Feature>
                 <Feature>Paper-trading simulator ({sym === '₦' ? '$100k' : '$100k'} virtual)</Feature>
                 <Feature>Full stock metrics, charts &amp; peer comparison</Feature>
-                <Feature>Watchlist up to 5 stocks</Feature>
-                <Feature>Community forum</Feature>
+                <Feature>Smart watchlist (up to 5 stocks) &amp; community forum</Feature>
+              </ul>
+
+              <p className="text-[10px] sm:text-[11px] font-black uppercase tracking-widest text-ink/45 mt-5 mb-2.5">
+                Try the AI, free every month
+              </p>
+              <ul className="space-y-2 sm:space-y-2.5 text-xs sm:text-sm">
+                <Feature>{pl(free.ai_analysis, 'AI stock snapshot')} — a plain-English read on any stock</Feature>
+                <Feature>{pl(free.ai_scout, 'AI Stock Scout scan')}</Feature>
+                <Feature>{pl(free.ai_comparison, 'AI stock comparison')}</Feature>
+                <Feature>{pl(free.ai_news, 'AI news scan')}</Feature>
+                <Feature>{pl(free.ai_research, 'long-term research report')}</Feature>
+                <Feature>Opportunity Radar &amp; My Market previews</Feature>
               </ul>
 
               <div className="mt-4 sm:mt-5 p-3 rounded-2xl bg-cream-warm flex items-start gap-2 min-w-0">
@@ -249,34 +280,50 @@ export default function Pricing() {
                   : `Billed monthly. Switch to yearly to save 20%.`}
               </p>
               <p className="text-xs sm:text-sm text-ink/55 mt-3 mb-4 sm:mb-5 break-words">
-                For people who want help researching — not hype.
+                StockAcademia watches the market for you — and tells you when something changes.
               </p>
 
               <ul className="space-y-2 sm:space-y-2.5 text-xs sm:text-sm">
                 <Feature highlight>Everything in Free</Feature>
                 <Feature highlight icon={Sparkles}>
-                  Plain-English AI verdict on any stock — in English, Pidgin, Yorùbá, Hausa or Igbo
+                  Unlimited AI — stock snapshots, Scout scans, comparisons, news scans &amp; research reports,
+                  in English, Pidgin, Yorùbá, Hausa or Igbo
                 </Feature>
-                <Feature highlight icon={Brain}>
-                  AI stock comparison — two tickers, side-by-side fundamentals, risk &amp; valuation
+                <Feature highlight icon={Compass}>
+                  My Market — your daily briefing on what changed since your last visit
+                </Feature>
+                <Feature highlight icon={Radar}>
+                  The full Opportunity Radar across US &amp; NGX stocks
+                </Feature>
+                <Feature highlight icon={Crosshair}>
+                  Swing entry plans — entry zone, confirmation, targets &amp; stop, checked on weekly, daily,
+                  4-hour &amp; 1-hour charts — then monitored for you
+                </Feature>
+                <Feature highlight icon={Wallet}>
+                  Position &amp; investment-thesis monitoring, with “Why did this change?”
+                </Feature>
+                <Feature highlight icon={BellRing}>
+                  Alerts on your phone — setups, watchlist changes &amp; company news (push, in-app &amp; Telegram)
+                </Feature>
+                <Feature highlight icon={NotebookPen}>
+                  Trading journal, AI post-trade reviews &amp; your personal patterns
                 </Feature>
                 <Feature highlight icon={BarChart3}>
                   AI portfolio analysis — concentration, sector exposure &amp; diversification gaps
                 </Feature>
-                <Feature highlight icon={Send}>
-                  Private premium Telegram channel
-                </Feature>
                 <Feature highlight icon={ClipboardCheck}>
                   One personal portfolio review per quarter, answered by a human
                 </Feature>
-                <Feature highlight icon={FileText}>
-                  Full analysis report — every metric, peer comparison &amp; PDF export
+                <Feature highlight icon={Send}>
+                  Private premium Telegram channel
                 </Feature>
-                <Feature highlight icon={Star}>Unlimited watchlist</Feature>
-                <Feature highlight icon={Activity}>Unlimited price alerts</Feature>
+                <Feature highlight icon={FileText}>
+                  Full analysis reports with PDF export
+                </Feature>
+                <Feature highlight icon={Star}>Unlimited watchlist &amp; price alerts</Feature>
               </ul>
 
-              {isPremium ? (
+              {isPremium && !canRenew ? (
                 <div className="mt-5 sm:mt-6 space-y-2">
                   <div className="w-full py-2.5 sm:py-3 rounded-full bg-bull-100 text-bull-700 text-center font-bold text-xs sm:text-sm">
                     ⭐ You're a Premium member
@@ -308,6 +355,13 @@ export default function Pricing() {
                 </div>
               ) : (
                 <>
+                  {canRenew && (
+                    <p className="mt-5 sm:mt-6 text-xs sm:text-sm font-semibold text-center text-coral-500 break-words">
+                      {planInfo.state === 'ending_soon'
+                        ? `Your Premium ends ${shortDate(planInfo.access_ends_at)}. Renew now: your new period starts when this one ends, so you lose nothing.`
+                        : `Your Premium has ended${planInfo.grace_ends_at && planInfo.state === 'grace' ? `. Full access continues until ${shortDate(planInfo.grace_ends_at)}` : ''}. Renew to keep everything running.`}
+                    </p>
+                  )}
                   <button
                     onClick={subscribe}
                     disabled={loading}
@@ -315,7 +369,7 @@ export default function Pricing() {
                   >
                     {loading
                       ? <><Loader2 size={16} className="animate-spin" /> Starting…</>
-                      : <><Sparkles size={16} /> Get Premium — {sym}{price.total}/{interval === 'annual' ? 'yr' : 'mo'}</>}
+                      : <><Sparkles size={16} /> {canRenew ? 'Renew Premium' : 'Get Premium'} — {sym}{price.total}/{interval === 'annual' ? 'yr' : 'mo'}</>}
                   </button>
                   <label className="flex items-center justify-center gap-2 mt-3 text-[11px] sm:text-xs text-ink/60 cursor-pointer break-words">
                     <input
@@ -372,7 +426,7 @@ export default function Pricing() {
               Questions, answered honestly
             </h2>
             <div className="space-y-2.5">
-              {FAQ.map((item) => (
+              {faqItems(sym, c.certificate, free).map((item) => (
                 <FaqItem key={item.q} q={item.q} a={item.a} />
               ))}
             </div>
@@ -392,10 +446,16 @@ export default function Pricing() {
 
 /* ------------------------------------------------------------------ */
 
-const FAQ = [
+// The FAQ depends on the visitor's currency (₦ in Nigeria, $ elsewhere) and on
+// the live free allowances, so it's built per render rather than hard-coded.
+const faqItems = (sym, certificate, free) => [
   {
     q: 'How do I pay? Do I need a card?',
     a: 'No card required. Pay however you like through Paystack — debit card, bank transfer, USSD, Opay or mobile money. Whatever you trust.',
+  },
+  {
+    q: 'Can I try the AI tools for free?',
+    a: `Yes. Every free account gets a monthly allowance: ${pl(free.ai_analysis, 'AI stock snapshot')}, ${pl(free.ai_scout, 'Scout scan')}, ${pl(free.ai_comparison, 'comparison')}, ${pl(free.ai_news, 'news scan')} and ${pl(free.ai_research, 'research report')}, plus previews of the Opportunity Radar and My Market. It resets on the 1st of each month. Premium removes the limits and adds monitoring and alerts.`,
   },
   {
     q: 'Does it auto-renew? Will I be charged again automatically?',
@@ -403,11 +463,11 @@ const FAQ = [
   },
   {
     q: 'What happens when my Premium ends?',
-    a: 'You keep your account, all your course progress, and your certificate. Only the premium tools — AI stock comparison, AI portfolio analysis, the Telegram channel, and portfolio reviews — pause until you renew.',
+    a: 'You keep your account, your course progress, your certificate and your data. The Premium tools pause until you renew: unlimited AI, entry plans and tracked setups, position and thesis monitoring, My Market, alerts, the journal, the Telegram channel and portfolio reviews. Your free monthly AI allowance keeps working.',
   },
   {
     q: 'Is the certificate included in Premium?',
-    a: 'No. The course and its certificate are separate from Premium. The course is free; the certificate is a one-time purchase (₦4,000 / $15). Premium is for the AI tools, Telegram channel, and portfolio review — you don\'t need it to finish the course or get certified.',
+    a: `No. The course and its certificate are separate from Premium. The course is free; the certificate is a one-time purchase of ${sym}${certificate}. Premium is for the AI tools, monitoring and alerts, the Telegram channel and portfolio reviews — you don't need it to finish the course or get certified.`,
   },
   {
     q: 'Do you offer refunds?',

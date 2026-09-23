@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { User, Mail, Save, Zap, Trophy, Wallet, Send, Check, Loader2, Languages, Crown } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Layout from '../components/Layout';
+import NotificationSettings from '../components/NotificationSettings';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import { LANGS, getLang, setLang } from '../lib/lang';
@@ -26,6 +27,15 @@ export default function Profile() {
 
   const isPremium = user?.plan === 'premium';
   const initial = (user?.username || user?.full_name || '?').charAt(0).toUpperCase();
+
+  // Deep link from the alert reminders — scroll the notification settings into view.
+  const notifRef = useRef(null);
+  const [search] = useSearchParams();
+  useEffect(() => {
+    if (search.get('notifications') && notifRef.current) {
+      notifRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [search]);
 
   const save = async (e) => {
     e.preventDefault();
@@ -172,6 +182,12 @@ export default function Profile() {
         {/* Telegram alerts — Premium only */}
         <div className="mt-5">
           {isPremium ? <TelegramConnect /> : <TelegramUpsell />}
+        </div>
+
+        {/* Notification preferences + per-device push.
+            ?notifications=1 (from the "turn on phone alerts" reminder) lands here. */}
+        <div className="mt-5" ref={notifRef}>
+          <NotificationSettings />
         </div>
       </div>
     </Layout>

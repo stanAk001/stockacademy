@@ -1,12 +1,44 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, Plus, X, TrendingUp, TrendingDown, Sparkles, Trash2 } from 'lucide-react';
+import { Star, Plus, X, TrendingUp, TrendingDown, Sparkles, Trash2, Activity } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Layout from '../components/Layout';
 import EmptyState from '../components/ui/EmptyState';
+import AlertGate from '../components/AlertGate';
 import api from '../services/api';
 import { useAuth } from '../context/AuthContext';
+
+// Watchlist intelligence (§12): the backend sends insight.status; we show it as
+// a short label. Unknown statuses fall back to no pill (the headline still shows).
+const STATUS_LABEL = {
+  ready: 'Ready',
+  confirmed: 'Confirmed',
+  approaching: 'Approaching',
+  developing: 'Developing',
+  strong_setup: 'Setup forming',
+  approaching_setup: 'Developing',
+  fundamentally_attractive: 'Fundamentally attractive',
+  thesis_strengthening: 'Thesis strengthening',
+  thesis_weakening: 'Thesis weakening',
+  thesis_invalidated: 'Invalidated',
+  thesis_intact: 'Thesis intact',
+  healthy_uptrend: 'Uptrend',
+  extended: 'Extended',
+  weakening: 'Weakening',
+  neutral: 'Ranging',
+};
+const PILL_TONE = {
+  bull: 'bg-bull-500/10 text-bull-600 border-bull-500/25',
+  bear: 'bg-bear-500/10 text-bear-500 border-bear-500/25',
+  ink: 'bg-ink/5 text-ink/60 border-ink/10',
+};
+// Statuses worth calling out in the summary line, in priority order.
+const SUMMARY = [
+  ['ready', 'ready'], ['confirmed', 'confirmed'], ['approaching', 'approaching entry'],
+  ['thesis_weakening', 'thesis weakening'], ['thesis_invalidated', 'invalidated'],
+  ['fundamentally_attractive', 'fundamentally attractive'],
+];
 
 export default function Watchlist() {
   const { user } = useAuth();
@@ -62,12 +94,25 @@ export default function Watchlist() {
           </button>
         </div>
 
+        <AlertGate what="the stocks on your watchlist" />
+
         {loading ? (
           <div className="space-y-3">
             {[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-ink/5 animate-pulse rounded-2xl" />)}
           </div>
         ) : list.length ? (
           <div className="space-y-3">
+            {(() => {
+              const counts = {};
+              list.forEach((it) => { const s = it.insight?.status; if (s) counts[s] = (counts[s] || 0) + 1; });
+              const parts = SUMMARY.filter(([k]) => counts[k]).map(([k, label]) => `${counts[k]} ${label}`);
+              return (
+                <p className="text-sm text-ink/60 mb-1 flex items-center gap-1.5">
+                  <Sparkles size={14} className="text-sun-600 shrink-0" />
+                  {parts.length ? parts.join(' · ') : 'Nothing needs your attention right now.'}
+                </p>
+              );
+            })()}
             {list.map((item, i) => {
               const p = prices[item.symbol];
               const up = p?.change >= 0;
@@ -83,9 +128,23 @@ export default function Watchlist() {
                     <Star size={18} className="text-ink" fill="currentColor" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-display font-bold text-lg font-mono">{item.symbol}</p>
-                    <p className="text-sm text-ink/60 truncate">{item.company_name || p?.name}</p>
-                    {item.note && <p className="text-xs text-ink/50 italic mt-0.5 truncate">"{item.note}"</p>}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-display font-bold text-lg font-mono">{item.symbol}</p>
+                      {item.insight && STATUS_LABEL[item.insight.status] && (
+                        <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${PILL_TONE[item.insight.tone] || PILL_TONE.ink}`}>
+                          {STATUS_LABEL[item.insight.status]}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-ink/60 truncate">{item.company_name || item.stock_name || p?.name}</p>
+                    {item.insight && (
+                      <p className={`text-xs mt-0.5 font-semibold flex items-center gap-1 min-w-0 ${
+                        item.insight.tone === 'bull' ? 'text-bull-600' : item.insight.tone === 'bear' ? 'text-bear-500' : 'text-ink/55'
+                      }`}>
+                        <Activity size={11} className="shrink-0" /> <span className="truncate">{item.insight.headline}</span>
+                      </p>
+                    )}
+                    {item.note && <p className="text-xs text-ink/45 italic mt-0.5 truncate">"{item.note}"</p>}
                   </div>
                   {p && (
                     <div className="text-right shrink-0">

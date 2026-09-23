@@ -229,13 +229,13 @@ export const updateUser = async (req, res) => {
       case 'grant_premium': {
         const expires = new Date();
         expires.setMonth(expires.getMonth() + 1);
-        updateSql = `UPDATE users SET plan = 'premium', plan_started_at = NOW(), plan_expires_at = $1 WHERE id = $2 RETURNING *`;
+        updateSql = `UPDATE users SET plan = 'premium', plan_started_at = NOW(), plan_expires_at = $1, plan_renews_at = $1 WHERE id = $2 RETURNING *`;
         params = [expires, id];
         actionLog = 'grant_premium';
         break;
       }
       case 'revoke_premium':
-        updateSql = `UPDATE users SET plan = 'free', plan_expires_at = NULL WHERE id = $1 RETURNING *`;
+        updateSql = `UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_renews_at = NULL WHERE id = $1 RETURNING *`;
         params = [id];
         actionLog = 'revoke_premium';
         break;
@@ -371,7 +371,7 @@ export const getRevenue = async (req, res) => {
     `);
 
     const activePremium = await db.query(
-      `SELECT COUNT(*) FROM users WHERE plan = 'premium' AND (plan_expires_at IS NULL OR plan_expires_at > NOW())`
+      `SELECT COUNT(*) FROM users WHERE plan = 'premium' AND (COALESCE(plan_renews_at, plan_expires_at) IS NULL OR COALESCE(plan_renews_at, plan_expires_at) > NOW())`
     );
 
     const recent = await db.query(
@@ -655,7 +655,7 @@ export const resetSimulator = async (req, res) => {
 
 /* ============================================
  * POST /api/admin/stocks/refresh-ngx
- * Populate NGX reference fundamentals via Claude (no live NGX feed exists).
+ * Populate NGX reference fundamentals via the AI (no live NGX feed exists).
  * ============================================ */
 export const refreshNgxFundamentals = async (req, res) => {
   if (!requireAdmin(req, res)) return;

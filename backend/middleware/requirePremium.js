@@ -1,12 +1,12 @@
 // requirePremium.js — gate for premium-only endpoints.
 //
-// A user is premium if plan === 'premium' AND they are still inside either
-// their trial window or their paid period:
-//   (trial_ends_at IS NULL OR trial_ends_at > NOW())
-//   AND (plan_renews_at IS NULL OR plan_renews_at > NOW())
+// Uses the shared rule in config/entitlements.js: plan === 'premium', any trial
+// still running, and the paid period (plus the grace days) not yet over. The
+// end date is read from plan_renews_at OR the legacy plan_expires_at.
 //
 // Mount AFTER `authenticate` so req.user.id is set.
 import db from '../config/db.js';
+import { isPremiumUser } from '../config/entitlements.js';
 
 export const requirePremium = async (req, res, next) => {
   try {
@@ -15,15 +15,10 @@ export const requirePremium = async (req, res, next) => {
     }
 
     const { rows } = await db.query(
-      `SELECT plan, trial_ends_at, plan_renews_at FROM users WHERE id = $1`,
+      `SELECT plan, trial_ends_at, plan_renews_at, plan_expires_at FROM users WHERE id = $1`,
       [req.user.id]
     );
-    const u = rows[0];
-
-    const now = Date.now();
-    const trialOk = !u?.trial_ends_at || new Date(u.trial_ends_at).getTime() > now;
-    const paidOk = !u?.plan_renews_at || new Date(u.plan_renews_at).getTime() > now;
-    const isPremium = u?.plan === 'premium' && trialOk && paidOk;
+    const isPremium = isPremiumUser(rows[0]);
 
     if (!isPremium) {
       return res.status(403).json({

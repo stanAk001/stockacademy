@@ -12,6 +12,7 @@ import BuyThisStockButton from '../components/BuyThisStockButton';
 import PdfDownloadButton from '../components/PdfDownloadButton';
 import ShareButton from '../components/ShareButton';
 import api from '../services/api';
+import { track } from '../lib/analytics';
 import { useAuth } from '../context/AuthContext';
 import { getLang, setLang, LANGS } from '../lib/lang';
 
@@ -48,7 +49,7 @@ export default function StockDetail() {
         return;
       }
 
-      // No live data for this ticker → ask Claude for an overview so search never dead-ends.
+      // No live data for this ticker → ask the AI for an overview so search never dead-ends.
       try {
         const { data } = await api.get(
           `/stocks/ai-brief/${encodeURIComponent(symbol)}?language=${getLang()}`
@@ -164,12 +165,9 @@ export default function StockDetail() {
             </div>
 
             <div className="space-y-6">
-              {/* AI plain-English verdict — Premium only. */}
-              {isPremium ? (
-                <AiVerdict ticker={symbol} displaySymbol={analysis.symbol} />
-              ) : (
-                <AiVerdictLocked displaySymbol={analysis.symbol} />
-              )}
+              {/* AI plain-English verdict — a free taste (metered), unlimited on Premium. */}
+              <AiVerdict ticker={symbol} displaySymbol={analysis.symbol} isPremium={isPremium} />
+
               {/* Full breakdown — free for everyone. */}
               <FullBreakdown analysis={analysis} symb={symb} fmt={fmt} fmtPct={fmtPct} />
             </div>
@@ -180,8 +178,8 @@ export default function StockDetail() {
   );
 }
 
-// Free users see a locked preview of the verdict with an upgrade prompt.
-function AiVerdictLocked({ displaySymbol }) {
+// The upgrade prompt shown once a Free user has used up their monthly snapshots.
+function AiVerdictLocked({ displaySymbol, message }) {
   return (
     <div className="card-dark p-6">
       <div className="flex items-center gap-2 mb-1">
@@ -190,15 +188,14 @@ function AiVerdictLocked({ displaySymbol }) {
         <span className="ml-auto text-[10px] font-black uppercase tracking-wider bg-sun-300 text-ink px-2 py-0.5 rounded-full">Premium</span>
       </div>
       <h3 className="font-display text-2xl font-bold mb-2">
-        What do {displaySymbol}'s numbers actually mean?
+        You've used your free {displaySymbol ? '' : ''}analyses
       </h3>
       <p className="text-cream/70 text-sm max-w-xl leading-relaxed mb-4">
-        Premium gives you a clear, beginner-friendly read on this stock — what kind of company it is,
-        what's strong, what to watch, and what it means for you. In English, Pidgin, Yorùbá, Hausa or Igbo.
+        {message || 'Upgrade to Premium for unlimited plain-English stock analysis — in English, Pidgin, Yorùbá, Hausa or Igbo — plus the AI Scout, comparisons, news scans and continuous monitoring.'}
       </p>
       <div className="flex flex-wrap items-center gap-3">
-        <Link to="/pricing" className="btn-primary">
-          <Lock size={15} /> Unlock with Premium
+        <Link to="/pricing" onClick={() => track('upgrade_clicked', { surface: 'stock_snapshot_wall' })} className="btn-primary">
+          <Lock size={15} /> Upgrade to Premium
         </Link>
         <span className="text-xs text-cream/50">Educational analysis — not financial advice.</span>
       </div>
@@ -208,11 +205,22 @@ function AiVerdictLocked({ displaySymbol }) {
 
 // The AI plain-English (or local-language) verdict — Premium only. On-demand
 // (button) so it doesn't burn the daily AI quota on every page view.
-function AiVerdict({ ticker, displaySymbol }) {
+function AiVerdict({ ticker, displaySymbol, isPremium }) {
   const [lang, setLangState] = useState(getLang());
-  const [status, setStatus] = useState('idle'); // idle | loading | done | error
+  const [status, setStatus] = useState('idle'); // idle | loading | done | error | upgrade
   const [data, setData] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [upgradeMsg, setUpgradeMsg] = useState('');
+  const [allowance, setAllowance] = useState(null); // { remaining, limit } for free users
+
+  // Show a Free user how many snapshots they have left this month.
+  const loadAllowance = () => {
+    if (isPremium) return;
+    api.get('/ai/usage')
+      .then(({ data: u }) => { if (u?.success) setAllowance(u.features?.ai_analysis || null); })
+      .catch(() => {});
+  };
+  useEffect(loadAllowance, [isPremium]);
 
   const generate = async () => {
     setStatus('loading');
@@ -224,14 +232,22 @@ function AiVerdict({ ticker, displaySymbol }) {
       if (res.success) {
         setData(res.analysis);
         setStatus('done');
+        loadAllowance(); // a fresh (billed) result consumed a slot — refresh the count
       } else {
         throw new Error(res.message || 'Could not generate the verdict.');
       }
     } catch (err) {
+      if (err.response?.status === 402 && err.response?.data?.upgrade) {
+        setUpgradeMsg(err.response.data.message || '');
+        setStatus('upgrade');
+        return;
+      }
       setErrorMsg(err.response?.data?.message || err.message || 'Something went wrong. Please try again.');
       setStatus('error');
     }
   };
+
+  if (status === 'upgrade') return <AiVerdictLocked displaySymbol={displaySymbol} message={upgradeMsg} />;
 
   const onLangChange = (code) => {
     setLangState(code);
@@ -272,6 +288,16 @@ function AiVerdict({ ticker, displaySymbol }) {
           <button onClick={generate} className="btn-primary mt-4">
             <Sparkles size={16} /> Explain in plain {LANGS.find((l) => l.code === lang)?.label || 'English'}
           </button>
+          {!isPremium && allowance && allowance.limit != null && (
+            <p className="text-xs text-cream/60 mt-3">
+              {allowance.remaining > 0 ? (
+                <><span className="text-sun-300 font-bold">{allowance.remaining}</span> of {allowance.limit} free {allowance.label || 'analyses'} left this month · </>
+              ) : (
+                <>You've used your free {allowance.label || 'analyses'} this month · </>
+              )}
+              <Link to="/pricing" onClick={() => track('upgrade_clicked', { surface: 'stock_snapshot_meter' })} className="text-sun-300 font-bold hover:underline">Go unlimited with Premium</Link>
+            </p>
+          )}
         </div>
       )}
 
@@ -472,7 +498,7 @@ function PageSkeleton() {
   );
 }
 
-// When we have no live data for a ticker, Claude identifies the company and
+// When we have no live data for a ticker, the AI identifies the company and
 // gives a plain-English overview — so "search any stock" never dead-ends.
 function AiBriefPage({ symbol, brief }) {
   const c = brief.company || {};

@@ -1,4 +1,5 @@
 import db from '../config/db.js';
+import { cleanProfile, normalizeRisk } from '../services/investorProfile.js';
 
 export const getDashboardStats = async (req, res) => {
   try {
@@ -36,6 +37,85 @@ export const getDashboardStats = async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ success: false, message: 'Failed to load stats' });
+  }
+};
+
+// PATCH /api/users/objective — save the investment profile (spec §3).
+// Only the keys actually sent are updated, and null CLEARS a value (e.g. the
+// Scout's "Both" market sends preferred_market: null). Uses migration_28 columns.
+const OBJECTIVES = ['swing', 'longterm', 'explore'];
+
+export const updateObjective = async (req, res) => {
+  try {
+    const b = req.body || {};
+    const sets = [];
+    const vals = [];
+    const add = (col, val) => { vals.push(val); sets.push(`${col} = $${vals.length}`); };
+
+    if ('objective' in b) {
+      if (b.objective != null && !OBJECTIVES.includes(b.objective)) {
+        return res.status(400).json({ success: false, message: 'Invalid objective.' });
+      }
+      add('objective', b.objective ?? null);
+    }
+    if ('risk_tolerance' in b) {
+      const r = b.risk_tolerance == null ? null : normalizeRisk(b.risk_tolerance);
+      if (b.risk_tolerance != null && !r) {
+        return res.status(400).json({ success: false, message: 'Invalid risk tolerance.' });
+      }
+      add('risk_tolerance', r);
+    }
+    if ('preferred_market' in b) {
+      const m = b.preferred_market;
+      const market = m == null || m === 'ALL' || m === 'BOTH' ? null : (m === 'US' || m === 'NG') ? m : undefined;
+      if (market === undefined) return res.status(400).json({ success: false, message: 'Invalid market.' });
+      add('preferred_market', market);
+    }
+    if ('investor_profile' in b) add('investor_profile', JSON.stringify(cleanProfile(b.investor_profile)));
+
+    if (!sets.length) return res.status(400).json({ success: false, message: 'Nothing to update.' });
+
+    vals.push(req.user.id);
+    const { rows } = await db.query(
+      `UPDATE users SET ${sets.join(', ')}, updated_at = NOW()
+        WHERE id = $${vals.length}
+        RETURNING objective, risk_tolerance, preferred_market, investor_profile`,
+      vals
+    );
+    res.json({ success: true, ...rows[0] });
+  } catch (err) {
+    console.error('updateObjective error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to save objective' });
+  }
+};
+
+// GET /api/users/objective — the saved profile (normalised) plus the sectors
+// available to pick from, for the Investment Profile page.
+export const getObjective = async (req, res) => {
+  try {
+    const [u, sec] = await Promise.all([
+      db.query(
+        `SELECT objective, risk_tolerance, preferred_market, investor_profile FROM users WHERE id = $1`,
+        [req.user.id]
+      ),
+      db.query(
+        `SELECT sector, COUNT(*)::int AS n FROM stocks
+          WHERE is_active = TRUE AND sector IS NOT NULL AND sector <> ''
+          GROUP BY sector ORDER BY n DESC LIMIT 30`
+      ),
+    ]);
+    const r = u.rows[0] || {};
+    res.json({
+      success: true,
+      objective: r.objective || null,
+      risk_tolerance: normalizeRisk(r.risk_tolerance),
+      preferred_market: r.preferred_market || null,
+      investor_profile: cleanProfile(r.investor_profile || {}),
+      sectors: sec.rows.map((x) => x.sector),
+    });
+  } catch (err) {
+    console.error('getObjective error:', err.message);
+    res.status(500).json({ success: false, message: 'Failed to load your profile' });
   }
 };
 

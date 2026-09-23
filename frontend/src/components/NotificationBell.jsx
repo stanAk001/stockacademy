@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, Heart, MessageCircle, CornerDownRight, Target } from 'lucide-react';
 import api from '../services/api';
+import { track } from '../lib/analytics';
 import { useAuth } from '../context/AuthContext';
 import PremiumBadge from './PremiumBadge';
 import { timeAgo } from '../lib/timeAgo';
@@ -13,6 +14,8 @@ const TYPE = {
   comment_reply: { icon: CornerDownRight, verb: 'replied to your comment' },
   comment_like:  { icon: Heart,          verb: 'liked your comment' },
   price_alert:   { icon: Target,         verb: '' },
+  ai_setup:      { icon: Target,         verb: '' },
+  broadcast:     { icon: Bell,           verb: '' },
 };
 
 export default function NotificationBell() {
@@ -106,12 +109,17 @@ export default function NotificationBell() {
                   // System notifications (e.g. price alerts) have no actor — show
                   // their stored message and a system icon instead of an avatar.
                   const isSystem = !n.actor_username;
-                  const to = n.type === 'price_alert' ? '/alerts' : (n.post_id ? `/forum/${n.post_id}` : '/forum');
+                  // Prefer the notification's own deep link (AI/market/broadcast),
+                  // then fall back to the legacy type/post routing.
+                  const to = n.deep_link || (n.type === 'price_alert' ? '/alerts' : (n.post_id ? `/forum/${n.post_id}` : '/forum'));
                   return (
                     <Link
                       key={n.id}
                       to={to}
-                      onClick={() => setOpen(false)}
+                      onClick={() => {
+                        track('notification_opened', { type: n.type, category: n.category || null, surface: 'bell' });
+                        setOpen(false);
+                      }}
                       className={`flex items-start gap-3 px-4 py-3 hover:bg-cream-warm transition border-b border-ink/5 last:border-0 ${n.is_read ? '' : 'bg-sun-100/50'}`}
                     >
                       {isSystem ? (
