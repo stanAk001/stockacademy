@@ -7,8 +7,9 @@ self.addEventListener('push', (event) => {
   const options = {
     body: data.body || '',
     data: { url: data.url || '/' },
-    icon: '/favicon.svg',
-    badge: '/favicon.svg',
+    // PNG, not the SVG favicon — Android won't render an SVG notification icon.
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
     tag: data.tag || 'stockacademia',
   };
   event.waitUntil(self.registration.showNotification(title, options));

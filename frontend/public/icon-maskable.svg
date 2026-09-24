@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Maskable variant: Android may crop this to a circle, so everything that
+       matters sits inside the middle ~80%. Same mark, pulled in from the edges. -->
+  <rect width="512" height="512" fill="#0F1419"/>
+  <g transform="translate(256 256) scale(0.76) translate(-256 -256)">
+    <g stroke="#FDF8F0" stroke-opacity="0.07" stroke-width="3">
+      <line x1="86" y1="150" x2="426" y2="150"/>
+      <line x1="86" y1="256" x2="426" y2="256"/>
+      <line x1="86" y1="362" x2="426" y2="362"/>
+    </g>
+    <path d="M92 372 L186 258 L262 312 L348 176 L424 116"
+          fill="none" stroke="#FBBF24" stroke-width="42"
+          stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="424" cy="116" r="30" fill="#0F1419"/>
+    <circle cx="424" cy="116" r="22" fill="#10B981"/>
+  </g>
+</svg>
