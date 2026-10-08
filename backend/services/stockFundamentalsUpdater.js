@@ -76,15 +76,16 @@ async function fetchFundamentals(symbol) {
  */
 export async function fetchHistoricalMetrics(symbol) {
   try {
+    // Ask for ~400 calendar days, not one year. A calendar year holds only ~251
+    // trading sessions, so a 252-session lookback for the 1-year return always
+    // fell off the start and came back null — for every stock.
     const now = new Date();
-    const oneYearAgo = new Date(now);
-    oneYearAgo.setFullYear(now.getFullYear() - 1);
+    const from = new Date(now.getTime() - 400 * 86_400_000);
 
     // Yahoo uses a dash for class shares (BRK-B), while our DB / Finnhub use a
     // dot (BRK.B). chart() is the current API; historical() just proxies to it.
-    const yahooSymbol = symbol.replace(/\./g, '-');
-    const chart = await yahooFinance.chart(yahooSymbol, {
-      period1: oneYearAgo,
+    const chart = await yahooFinance.chart(toYahooSymbol(symbol), {
+      period1: from,
       period2: now,
       interval: '1d',
     });
@@ -92,18 +93,21 @@ export async function fetchHistoricalMetrics(symbol) {
 
     if (history.length < 30) return {};
 
-    const prices = history.map((h) => h.close).filter((p) => p);
-    if (prices.length < 30) return {};
+    const allPrices = history.map((h) => h.close).filter((p) => p);
+    if (allPrices.length < 30) return {};
 
-    const latest = prices[prices.length - 1];
+    const latest = allPrices[allPrices.length - 1];
 
     const returnAt = (daysBack) => {
-      const idx = prices.length - 1 - daysBack;
+      const idx = allPrices.length - 1 - daysBack;
       if (idx < 0) return null;
-      const old = prices[idx];
+      const old = allPrices[idx];
       return old ? (latest - old) / old : null;
     };
 
+    // The "1y" risk figures cover exactly the last year of sessions (253 closes
+    // → 252 daily moves), not the extra history fetched for the return lookback.
+    const prices = allPrices.slice(-253);
     const dailyReturns = [];
     for (let i = 1; i < prices.length; i++) {
       dailyReturns.push((prices[i] - prices[i - 1]) / prices[i - 1]);

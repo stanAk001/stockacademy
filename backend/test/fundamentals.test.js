@@ -17,8 +17,12 @@ class FakeYahoo {
       price: { regularMarketPrice: 420, regularMarketChangePercent: 0.012, regularMarketVolume: 1e7, marketCap: 3.1e12 },
     };
   }
-  async chart() {
-    const quotes = Array.from({ length: 260 }, (_, i) => ({ date: new Date(Date.now() - (260 - i) * 864e5), close: 300 + i * 0.5 }));
+  // Like a real exchange calendar: ~251 trading sessions per 365 days. (A fixed
+  // bar count is how the "1-year return is always null" bug went unnoticed.)
+  async chart(_sym, { period1, period2 }) {
+    const days = (new Date(period2) - new Date(period1)) / 864e5;
+    const n = Math.floor((days * 251) / 365);
+    const quotes = Array.from({ length: n }, (_, i) => ({ date: new Date(Date.now() - (n - i) * 864e5), close: 300 + i * 0.5 }));
     return { quotes };
   }
 }
@@ -48,6 +52,10 @@ test('every column the fundamentals UPDATE writes is a real stocks column', asyn
   assert.deepEqual(unknown, [], `writes columns that don't exist: ${unknown.join(', ')}`);
   // the three that broke it
   for (const bad of ['price', 'change_pct', 'volume']) assert.ok(!cols.includes(bad), `still writes ${bad}`);
+  // and the 1-year figures the long-term screen ranks on are actually written
+  for (const need of ['return_1y', 'volatility_1y', 'max_drawdown_1y', 'roe']) {
+    assert.ok(cols.includes(need), `does not write ${need}`);
+  }
 });
 
 test('default run = rotating slice + stocks with no fundamentals, not everything', async () => {
