@@ -14,14 +14,17 @@ import { fetchNgxHistory } from './marketPrice.js';
 import { aggregateCandles } from './indicators.js';
 import { filterUsRegularSession } from './marketHours.js';
 
+import { toYahooSymbol } from './yahooQuotes.js';
+
 const yf = new YahooFinance();
+export { toYahooSymbol };
 
 async function fetchUsCandles(symbol, days = 400) {
   const period2 = new Date();
   const period1 = new Date();
   period1.setDate(period1.getDate() - days);
   try {
-    const chart = await yf.chart(symbol, { period1, period2, interval: '1d' });
+    const chart = await yf.chart(toYahooSymbol(symbol), { period1, period2, interval: '1d' });
     const rows = (chart?.quotes || []).filter(
       (h) => h.close != null && h.high != null && h.low != null
     );
@@ -75,7 +78,7 @@ async function fetchUsInterval(symbol, interval, days) {
   const period1 = new Date();
   period1.setDate(period1.getDate() - days);
   try {
-    const chart = await yf.chart(symbol, { period1, period2, interval });
+    const chart = await yf.chart(toYahooSymbol(symbol), { period1, period2, interval });
     const rows = (chart?.quotes || [])
       .filter((h) => h.close != null && h.high != null && h.low != null)
       .map((h) => ({

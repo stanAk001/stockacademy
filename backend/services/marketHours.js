@@ -32,3 +32,13 @@ export function isUsRegularSession(date) {
 export function filterUsRegularSession(candles) {
   return (candles || []).filter((c) => isUsRegularSession(c.date));
 }
+
+const usWeekday = new Intl.DateTimeFormat('en-US', { timeZone: US_TZ, weekday: 'short' });
+
+// Is the US market in its regular session right now (Mon–Fri, New York time)?
+// Exchange holidays aren't modelled; on those days this says "open" and the
+// price refresh simply finds nothing new.
+export function isUsMarketOpen(date = new Date()) {
+  const day = usWeekday.format(new Date(date));
+  return day !== 'Sat' && day !== 'Sun' && isUsRegularSession(date);
+}

@@ -1,6 +1,6 @@
 import db from '../config/db.js';
 import { notifyNewSignup } from '../services/telegramService.js';
-import { updateAllUSStocks, updateSingleStock } from '../services/stockFundamentalsUpdater.js';
+import { updateAllUSStocks, updateSingleStock, fundamentalsUpdateRunning } from '../services/stockFundamentalsUpdater.js';
 import { refreshAllNgxPrices, refreshNgxHistoryMetrics, recomputeRatios } from '../services/marketPrice.js';
 
 function requireAdmin(req, res) {
@@ -564,17 +564,24 @@ export const bulkUpdatePrices = async (req, res) => {
 
 /* ============================================
  * POST /api/admin/stocks/refresh-us
- * Manually trigger US stocks auto-update from Yahoo Finance
+ * Refresh every US stock's fundamentals from Yahoo Finance.
+ *
+ * With ~1,000 US stocks this takes 30+ minutes, far longer than any request can
+ * stay open, so it starts in the background and answers straight away.
  * ============================================ */
 export const refreshUSStocks = async (req, res) => {
   if (!requireAdmin(req, res)) return;
-  try {
-    const result = await updateAllUSStocks();
-    res.json(result);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ success: false, message: 'Refresh failed' });
+  if (fundamentalsUpdateRunning()) {
+    return res.json({ success: true, started: false, message: 'A US fundamentals refresh is already running.' });
   }
+  updateAllUSStocks({ all: true })
+    .then((r) => console.log(`[admin] US fundamentals refresh: ${r.succeeded ?? 0}/${r.total ?? 0} in ${r.duration_seconds ?? '?'}s`))
+    .catch((e) => console.warn('[admin] US fundamentals refresh failed:', e.message));
+  res.status(202).json({
+    success: true,
+    started: true,
+    message: 'Refresh started for every US stock. It runs in the background (about 30–40 minutes).',
+  });
 };
 
 /* ============================================

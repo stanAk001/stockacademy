@@ -21,6 +21,7 @@
 // ============================================================
 import axios from 'axios';
 import db from '../config/db.js';
+import { yahooBatchQuotes } from './yahooQuotes.js';
 
 const FINNHUB_KEY = process.env.FINNHUB_API_KEY || '';
 const NGX_KEY = process.env.NGX_PULSE_API_KEY || '';
@@ -377,20 +378,27 @@ export async function refreshNgxHistoryMetrics({ limit = 40 } = {}) {
  * Finnhub's free tier allows ~60 calls/min; ~25 symbols at 250ms apart is ~4
  * calls/sec worst case, comfortably inside it.
  */
+/**
+ * Refresh every active US price. Runs on a short timer (see server.js).
+ *
+ * Bulk work goes through Yahoo batch quotes — ~10 requests for the whole
+ * universe. It used to be one Finnhub call per stock, which was fine at 25
+ * stocks but at ~1,000 would run non-stop above Finnhub's 60/min limit and
+ * starve the stock pages and search that need Finnhub on demand.
+ */
 export async function refreshAllUsPrices() {
-  if (!FINNHUB_KEY) return { ok: false, reason: 'no_api_key', updated: 0 };
-
   const { rows } = await db.query(
     `SELECT symbol FROM stocks WHERE country = 'US' AND is_active = TRUE ORDER BY symbol`
   );
+  const quotes = await yahooBatchQuotes(rows.map((r) => r.symbol));
 
   let updated = 0;
-  for (const { symbol } of rows) {
-    const q = await fetchUsQuote(symbol);
-    if (q) { await persistQuote(symbol, q); updated++; }
-    await new Promise((r) => setTimeout(r, 250));
+  for (const [symbol, q] of quotes) {
+    await persistQuote(symbol, q);
+    updated++;
   }
-  await recomputeRatios();
+  if (updated) await recomputeRatios();
+  if (!updated && rows.length) return { ok: false, reason: 'yahoo_unavailable', updated: 0, total: rows.length };
   return { ok: true, updated, total: rows.length };
 }
 

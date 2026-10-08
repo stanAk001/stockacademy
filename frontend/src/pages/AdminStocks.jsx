@@ -240,8 +240,9 @@ function RefreshUSButton() {
     try {
       const { data } = await api.post('/admin/stocks/refresh-us');
       if (data.success) {
-        toast.success(`Updated ${data.succeeded}/${data.total} stocks in ${data.duration_seconds}s`);
-        setTimeout(() => window.location.reload(), 800);
+        // The refresh runs in the background now (~1,000 stocks), so there's no
+        // count to show yet — just confirmation it started.
+        toast.success(data.message || 'Refresh started in the background');
       } else {
         toast.error(data.error || 'Refresh failed');
       }

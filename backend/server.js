@@ -15,8 +15,10 @@ import { updateAllUSStocks } from './services/stockFundamentalsUpdater.js';
 import { refreshUsSnapshots } from './services/marketSnapshot.js';
 import { refreshAllNgxPrices, refreshNgxHistoryMetrics, refreshAllUsPrices } from './services/marketPrice.js';
 import { importNgxListings } from './services/ngxImporter.js';
+import { importUsUniverse } from './services/usStocks.js';
 import { checkPriceAlerts } from './services/alertEngine.js';
 import { refreshTechnicals } from './services/technicalsUpdater.js';
+import { isUsMarketOpen } from './services/marketHours.js';
 import { monitorSetups } from './services/setupMonitor.js';
 import { monitorPositions } from './services/positionMonitor.js';
 import { monitorTheses } from './services/thesisMonitor.js';
@@ -164,10 +166,16 @@ app.use((err, req, res, next) => {
 
 // Daily at 6am Lagos time — fetch fresh US stock fundamentals from Yahoo Finance
 cron.schedule('0 6 * * *', async () => {
+  // Make sure every stock in the curated US universe exists (a no-op once they
+  // do; picks up additions when data/us-universe.json is updated and deployed).
+  await importUsUniverse()
+    .then((r) => r.ok && r.added && console.log(`[cron] US universe: +${r.added} new`))
+    .catch((e) => console.warn('[cron] US universe import:', e.message));
   console.log('[cron] Running daily US stock fundamentals update...');
+  // A rotating slice, plus any stock with no fundamentals yet (see the updater).
   await updateAllUSStocks();
-  // Yahoo covers ratios; Finnhub tops up live price + day change (used by recaps,
-  // Compare, and Stock Detail). Runs regardless of whether Yahoo succeeded.
+  // Live price + day change (used by recaps, Compare, and Stock Detail) — Yahoo
+  // batch quotes, Finnhub only for stragglers.
   await refreshUsSnapshots();
   // Pick up newly listed NGX companies before pricing, so they're usable today.
   await importNgxListings()
@@ -277,14 +285,22 @@ cron.schedule('30 6 * * *', async () => {
 // so refreshing that column on a timer is what makes the WHOLE platform fresh.
 // The stock page you actually open also fetches live on top of this.
 const PRICE_REFRESH_MS = Number(process.env.PRICE_REFRESH_MS) || 3 * 60 * 1000;
+const US_OFF_HOURS_MS = 60 * 60 * 1000; // closed market: prices barely move
 let priceRefreshBusy = false;
+let lastUsOffHoursRefresh = 0;
 const runPriceRefresh = async () => {
   if (priceRefreshBusy) return; // never overlap runs
   priceRefreshBusy = true;
   try {
-    const us = await refreshAllUsPrices();
-    if (us.ok) console.log(`[prices] US refreshed ${us.updated}/${us.total}`);
-    else console.warn(`[prices] US refresh did nothing — ${us.reason === 'no_api_key' ? 'FINNHUB_API_KEY is NOT set on this host' : us.reason}`);
+    // Every cycle while the US market is open; hourly when it's closed (the
+    // first off-hours run still captures the closing prices).
+    const usOpen = isUsMarketOpen();
+    if (usOpen || Date.now() - lastUsOffHoursRefresh >= US_OFF_HOURS_MS) {
+      if (!usOpen) lastUsOffHoursRefresh = Date.now();
+      const us = await refreshAllUsPrices();
+      if (us.ok) console.log(`[prices] US refreshed ${us.updated}/${us.total}`);
+      else console.warn(`[prices] US refresh did nothing — ${us.reason}`);
+    }
     // NGX moves far slower and the free plan is 100 calls/day, so only every 5th
     // cycle (~15 min) — still one call for all 146 equities.
     if (Date.now() % (5 * PRICE_REFRESH_MS) < PRICE_REFRESH_MS) {

@@ -2,6 +2,7 @@ import axios from 'axios';
 import db from '../config/db.js';
 import { fetchHistoricalMetrics } from '../services/stockFundamentalsUpdater.js';
 import { getQuoteAndPersist } from '../services/marketPrice.js';
+import { normalizeExchange, sectorFromIndustry } from '../services/usStocks.js';
 
 const FINNHUB_KEY = process.env.FINNHUB_API_KEY || '';
 const FINNHUB_BASE = 'https://finnhub.io/api/v1';
@@ -173,6 +174,9 @@ async function upsertStockIfMissing(symbol) {
     });
     if (!data || !data.name) return null;
 
+    // Finnhub's exchange is e.g. "NEW YORK STOCK EXCHANGE, INC." — longer than
+    // the VARCHAR(20) column — and its industry labels aren't our sectors. Both
+    // are normalised; unnormalised, this insert failed for every new US stock.
     const inserted = await db.query(
       `INSERT INTO stocks (symbol, display_symbol, name, exchange, country, currency, sector, industry, logo_url)
        VALUES ($1, $2, $3, $4, 'US', $5, $6, $7, $8)
@@ -180,17 +184,19 @@ async function upsertStockIfMissing(symbol) {
        RETURNING *`,
       [
         symbol,
-        data.ticker || symbol,
-        data.name,
-        data.exchange || 'US',
-        data.currency || 'USD',
-        data.finnhubIndustry || null,
-        data.finnhubIndustry || null,
+        String(data.ticker || symbol).slice(0, 20),
+        String(data.name).slice(0, 200),
+        normalizeExchange(data.exchange),
+        String(data.currency || 'USD').slice(0, 3),
+        sectorFromIndustry(data.finnhubIndustry),
+        data.finnhubIndustry ? String(data.finnhubIndustry).slice(0, 100) : null,
         data.logo || null,
       ]
     );
     return inserted.rows[0];
-  } catch {
+  } catch (e) {
+    // Never silent again: a swallowed error here is a stock users can't open.
+    console.warn(`[stocks] could not add ${symbol}:`, e.message);
     return null;
   }
 }

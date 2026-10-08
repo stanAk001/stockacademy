@@ -1,5 +1,6 @@
 import YahooFinance from 'yahoo-finance2';
 import db from '../config/db.js';
+import { toYahooSymbol } from './yahooQuotes.js';
 
 // Instantiate the new v3+ class
 const yahooFinance = new YahooFinance();
@@ -11,7 +12,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  */
 async function fetchFundamentals(symbol) {
   try {
-    const result = await yahooFinance.quoteSummary(symbol, {
+    const result = await yahooFinance.quoteSummary(toYahooSymbol(symbol), {
       modules: [
         'summaryDetail',
         'defaultKeyStatistics',
@@ -25,12 +26,11 @@ async function fetchFundamentals(symbol) {
     const financial = result.financialData || {};
     const price = result.price || {};
 
+    // Every key here must be a real stocks column: Postgres rejects the whole
+    // UPDATE if one isn't. This used to include price / change_pct / volume,
+    // none of which exist, so every fundamentals write silently failed. Prices
+    // are owned by the snapshot + technicals jobs, not this one.
     const data = {
-      price: price.regularMarketPrice || null,
-      change_pct: price.regularMarketChangePercent
-        ? parseFloat(price.regularMarketChangePercent) * 100
-        : null,
-      volume: price.regularMarketVolume || null,
       high_52w: summary.fiftyTwoWeekHigh || null,
       low_52w: summary.fiftyTwoWeekLow || null,
 
@@ -183,16 +183,45 @@ async function updateOneStock(symbol) {
 }
 
 /**
- * Main entry: update all US stocks in the database.
+ * Main entry: refresh US fundamentals.
+ *
+ * Fundamentals move quarterly, so with ~1,000 stocks we don't redo all of them
+ * every day (that's ~40 minutes of Yahoo calls). Each run takes:
+ *   • every stock that has no fundamentals yet (new listings) — up to maxMissing
+ *   • a fixed 1/rotateDays slice of the rest, chosen by a stable hash of the
+ *     symbol, so every stock is refreshed once every rotateDays days.
+ * Pass { all: true } to refresh everything (slow; run it in the background), or
+ * { onlyMissing: true } to backfill stocks that have never had fundamentals.
  */
-export async function updateAllUSStocks() {
-  console.log('[fundamentals] Starting US stocks update...');
+let fundamentalsRunning = false;
+
+const MISSING_FUNDAMENTALS = `country = 'US' AND is_active = TRUE
+             AND pe_ratio IS NULL AND roe IS NULL AND net_margin IS NULL`;
+
+export async function updateAllUSStocks({ all = false, onlyMissing = false, rotateDays = 5, maxMissing = 300 } = {}) {
+  if (fundamentalsRunning) return { success: false, error: 'already_running' };
+  fundamentalsRunning = true;
+  const mode = all ? 'all' : onlyMissing ? 'missing only' : `1/${rotateDays} rotation + missing`;
+  console.log(`[fundamentals] Starting US stocks update (${mode})...`);
   const startTime = Date.now();
 
   try {
-    const { rows } = await db.query(
-      `SELECT symbol FROM stocks WHERE country = 'US' ORDER BY symbol ASC`
-    );
+    const day = Math.floor(Date.now() / 86_400_000);
+    const { rows } = all
+      ? await db.query(`SELECT symbol FROM stocks WHERE country = 'US' AND is_active = TRUE ORDER BY symbol ASC`)
+      : onlyMissing
+      ? await db.query(`SELECT symbol FROM stocks WHERE ${MISSING_FUNDAMENTALS} ORDER BY symbol`)
+      : await db.query(
+        `(SELECT symbol FROM stocks
+           WHERE ${MISSING_FUNDAMENTALS}
+           ORDER BY symbol LIMIT $1)
+         UNION
+         (SELECT symbol FROM stocks
+           WHERE country = 'US' AND is_active = TRUE
+             AND MOD(ABS(hashtext(symbol)), $2) = $3)
+         ORDER BY symbol`,
+        [maxMissing, rotateDays, day % rotateDays]
+      );
 
     const results = [];
     for (const row of rows) {
@@ -223,8 +252,12 @@ export async function updateAllUSStocks() {
   } catch (err) {
     console.error('[fundamentals] Job error:', err);
     return { success: false, error: err.message };
+  } finally {
+    fundamentalsRunning = false;
   }
 }
+
+export const fundamentalsUpdateRunning = () => fundamentalsRunning;
 
 export async function updateSingleStock(symbol) {
   return await updateOneStock(symbol.toUpperCase());

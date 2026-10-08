@@ -14,6 +14,7 @@ import { analyzeWithAI, parseJsonFromAI } from '../services/aiProvider.js';
 import { refreshUsSnapshots } from '../services/marketSnapshot.js';
 import { refreshAllNgxPrices } from '../services/marketPrice.js';
 import { importNgxListings } from '../services/ngxImporter.js';
+import { importUsUniverse } from '../services/usStocks.js';
 import { refreshTechnicals } from '../services/technicalsUpdater.js';
 
 const SITE = 'StockAcademia';
@@ -188,6 +189,8 @@ export const cronDailyRecap = async (req, res) => {
     return res.status(401).json({ success: false, message: 'Unauthorized' });
   }
   try {
+    // Every curated US stock exists before pricing (no-op once they do).
+    const universe = await importUsUniverse().catch((e) => ({ ok: false, error: e.message }));
     const snapshot = await refreshUsSnapshots().catch((e) => ({ ok: false, error: e.message }));
     // Pick up any newly listed NGX company first, so it gets priced in the same
     // run instead of waiting a day.
@@ -200,7 +203,11 @@ export const cronDailyRecap = async (req, res) => {
     refreshTechnicals({ country: 'US' })
       .then((r) => console.log('[cron] Technicals (external):', JSON.stringify({ updated: r.updated, total: r.total })))
       .catch((e) => console.warn('[cron] Technicals (external):', e.message));
-    return res.json({ success: recap.ok !== false, snapshot, listings, ngx, recap, technicals: 'started' });
+    return res.json({
+      success: recap.ok !== false,
+      universe: universe && { ok: universe.ok, added: universe.added, total: universe.total },
+      snapshot, listings, ngx, recap, technicals: 'started',
+    });
   } catch (err) {
     console.error('cronDailyRecap error:', err);
     return res.status(500).json({ success: false, message: 'Daily pipeline failed' });
